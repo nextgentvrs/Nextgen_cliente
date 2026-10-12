@@ -106,20 +106,44 @@
             }
         }
 
-        // Carrega e processa o EPG com suporte a Desktop e WebView Kotlin (Android)
+        // Carrega e processa o EPG com dupla tentativa de proxy para PC e WebView Kotlin (Android)
         async function carregarEpgCompleto(usuario, senha) {
             const selectCanal = document.getElementById('selectCanalEpg');
             selectCanal.innerHTML = '<option value="">A carregar canais...</option>';
 
             const urlEpgOriginal = `http://plus.lat/xmltv.php?username=${usuario}&password=${senha}`;
-            // Usa proxy para contornar bloqueios HTTP/CORS tanto em browsers quanto em WebViews
-            const urlEpg = `https://corsproxy.io/?${encodeURIComponent(urlEpgOriginal)}`;
+            
+            // Lista de proxies para garantir funcionamento em WebViews restrictas (Kotlin)
+            const proxies = [
+                `https://corsproxy.io/?${encodeURIComponent(urlEpgOriginal)}`,
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(urlEpgOriginal)}`
+            ];
+
+            let respostaOk = null;
+            let textoXml = "";
+
+            for (const urlProxy of proxies) {
+                try {
+                    const response = await fetch(urlProxy);
+                    if (response.ok) {
+                        textoXml = await response.text();
+                        if (textoXml.includes("<tv>") || textoXml.includes("<programme>")) {
+                            respostaOk = true;
+                            break;
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Tentativa de proxy falhou, tentando próxima...", err);
+                }
+            }
+
+            if (!respostaOk || !textoXml) {
+                console.error("Erro EPG: Todos os proxies falharam.");
+                selectCanal.innerHTML = '<option value="">Guia indisponível no momento</option>';
+                return;
+            }
 
             try {
-                const response = await fetch(urlEpg);
-                if (!response.ok) throw new Error("Erro ao carregar dados do EPG");
-
-                const textoXml = await response.text();
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(textoXml, "text/xml");
 
@@ -166,7 +190,6 @@
                         const dataFim = parseXmlTvDate(stopStr);
 
                         if (dataInicio && dataFim && dataFim >= agora && dataInicio <= meiaNoite) {
-                            // Evita duplicar o mesmo programa no mesmo horário pro mesmo canal limpo
                             const jaExiste = dadosEpgGlobais.programasPorCanal[nomeLimpo].some(
                                 p => p.titulo === titulo && p.inicio.getTime() === dataInicio.getTime()
                             );
@@ -187,8 +210,8 @@
                 renderizarSeletorCanaisPorCategoria();
 
             } catch (e) {
-                console.error("Erro EPG:", e);
-                selectCanal.innerHTML = '<option value="">Guia indisponível temporariamente</option>';
+                console.error("Erro ao processar XML do EPG:", e);
+                selectCanal.innerHTML = '<option value="">Erro ao processar grade</option>';
             }
         }
 
