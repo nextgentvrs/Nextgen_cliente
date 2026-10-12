@@ -1,493 +1,86 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NextGen.TV - Área do Cliente</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+// Carrega e processa o EPG com suporte total a navegadores mobile (HTTPS Proxy)
+async function carregarEpgCompleto(usuario, senha) {
+    const selectCanal = document.getElementById('selectCanalEpg');
+    selectCanal.innerHTML = '<option value="">A carregar canais...</option>';
+
+    // Link original em HTTP
+    const urlEpgOriginal = `http://plus.lat/xmltv.php?username=${usuario}&password=${senha}`;
     
-    <!-- SDKs do Firebase (Modular v10) -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    // Proxy HTTPS para liberar o acesso no celular
+    const urlEpg = `https://corsproxy.io/?${encodeURIComponent(urlEpgOriginal)}`;
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBrp9JlMd9zBUqzByPRBLCStLiLbH5z80Y",
-            authDomain: "nextgentv.firebaseapp.com",
-            projectId: "nextgentv",
-            storageBucket: "nextgentv.firebasestorage.app",
-            messagingSenderId: "999074190973",
-            appId: "1:999074190973:web:967de16614c5274a760314"
-        };
+    try {
+        const response = await fetch(urlEpg);
+        if (!response.ok) throw new Error("Erro ao carregar dados do EPG");
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const SERVIDOR_FIXO = "http://plus.lat";
+        const textoXml = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(textoXml, "text/xml");
 
-        let dadosEpgGlobais = { canaisUnicos: {}, programasPorCanal: {} };
+        const programas = xmlDoc.getElementsByTagName("programme");
+        const canais = xmlDoc.getElementsByTagName("channel");
 
-        // Função para limpar resoluções e duplicados dos nomes dos canais
-        function normalizarNomeCanal(nome) {
-            if (!nome) return "";
-            return nome
-                .replace(/\b(FHD|HD|SD|4K|2K|HEVC|H265|H264|H2\+|ALT|BACKUP)\b/gi, '')
-                .replace(/\[.*?\]|\(.*?\)/g, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-        }
+        dadosEpgGlobais.canaisUnicos = {};
+        dadosEpgGlobais.programasPorCanal = {};
 
-        // Função de Login do Cliente via Telefone
-        window.fazerLoginCliente = async () => {
-            const telefoneInput = document.getElementById('telefoneLogin').value.trim().replace(/\D/g, '');
-            const erroEl = document.getElementById('erroLogin');
-            erroEl.innerText = "";
+        const mapaIdsParaNomeUnico = {};
 
-            if (!telefoneInput) {
-                erroEl.innerText = "Por favor, digite o seu número de WhatsApp/Telefone.";
-                return;
-            }
+        // 1. Processa canais limpando resoluções (SD, HD, FHD) e agrupa por Nome Único
+        for (let i = 0; i < canais.length; i++) {
+            const idOriginal = canais[i].getAttribute("id");
+            const nomeBruto = canais[i].getElementsByTagName("display-name")[0]?.textContent || idOriginal;
+            const nomeLimpo = normalizarNomeCanal(nomeBruto);
 
-            try {
-                const docRef = doc(db, "clientes", telefoneInput);
-                const docSnap = await getDoc(docRef);
-
-                if (docSnap.exists()) {
-                    const dados = docSnap.data();
-                    
-                    localStorage.setItem('nextgen_cliente', JSON.stringify({
-                        id: telefoneInput,
-                        ...dados
-                    }));
-
-                    carregarPainelCliente(telefoneInput, dados);
-                } else {
-                    erroEl.innerText = "Telefone não encontrado no sistema. Solicite acesso ao suporte!";
+            if (nomeLimpo) {
+                mapaIdsParaNomeUnico[idOriginal] = nomeLimpo;
+                if (!dadosEpgGlobais.canaisUnicos[nomeLimpo]) {
+                    dadosEpgGlobais.canaisUnicos[nomeLimpo] = true;
+                    dadosEpgGlobais.programasPorCanal[nomeLimpo] = [];
                 }
-            } catch (e) {
-                console.error("Erro ao fazer login:", e);
-                erroEl.innerText = "Erro ao conectar com o servidor.";
-            }
-        };
-
-        // Carrega as informações no painel do cliente
-        async function carregarPainelCliente(telefone, dados) {
-            document.getElementById('telaLoginCliente').classList.add('hidden');
-            document.getElementById('painelCliente').classList.remove('hidden');
-
-            document.getElementById('nomeClienteExibicao').innerText = dados.nome || 'Cliente VIP';
-            document.getElementById('planoClienteExibicao').innerText = dados.nomePlano || 'Plano Ativo';
-            document.getElementById('usuarioExibicao').innerText = dados.usuario || 'Não configurado';
-            document.getElementById('senhaExibicao').innerText = dados.senha || 'Não configurado';
-            document.getElementById('servidorExibicao').innerText = SERVIDOR_FIXO;
-
-            if (dados.dataCadastro && dados.diasValidade !== undefined) {
-                const dataCadastro = new Date(dados.dataCadastro);
-                const msValidade = dados.diasValidade * 24 * 60 * 60 * 1000;
-                const dataVencimento = new Date(dataCadastro.getTime() + msValidade);
-                const diffMs = dataVencimento - new Date();
-                const diffDias = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-                const statusEl = document.getElementById('statusVencimentoExibicao');
-                if (diffMs > 0) {
-                    statusEl.innerText = `Expira em ${diffDias} dia(s)`;
-                    statusEl.className = "text-xs px-3 py-1 rounded-full font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-                } else {
-                    statusEl.innerText = "Plano Expirado ⚠️";
-                    statusEl.className = "text-xs px-3 py-1 rounded-full font-bold bg-red-500/20 text-red-400 border border-red-500/30";
-                }
-            }
-
-            carregarAvisosCliente(telefone);
-            
-            if (dados.usuario && dados.senha) {
-                carregarEpgCompleto(dados.usuario, dados.senha);
-            } else {
-                document.getElementById('selectCanalEpg').innerHTML = '<option value="">Configure o usuário e senha</option>';
             }
         }
 
-        // Carrega e processa o EPG com desduplicação
-        async function carregarEpgCompleto(usuario, senha) {
-            const selectCanal = document.getElementById('selectCanalEpg');
-            selectCanal.innerHTML = '<option value="">A carregar canais...</option>';
+        const agora = new Date();
+        const meiaNoite = new Date();
+        meiaNoite.setHours(23, 59, 59, 999);
 
-            const urlEpg = `http://plus.lat/xmltv.php?username=${usuario}&password=${senha}`;
+        // 2. Associa a programação ao canal limpo unificado
+        for (let i = 0; i < programas.length; i++) {
+            const prog = programas[i];
+            const channelIdOriginal = prog.getAttribute("channel");
+            const nomeLimpo = mapaIdsParaNomeUnico[channelIdOriginal];
 
-            try {
-                const response = await fetch(urlEpg);
-                if (!response.ok) throw new Error("Erro ao carregar dados do EPG");
+            if (nomeLimpo && dadosEpgGlobais.programasPorCanal[nomeLimpo]) {
+                const startStr = prog.getAttribute("start");
+                const stopStr = prog.getAttribute("stop");
+                const titulo = prog.getElementsByTagName("title")[0]?.textContent || "Programa sem título";
+                const descricao = prog.getElementsByTagName("desc")[0]?.textContent || "Sem descrição disponível.";
 
-                const textoXml = await response.text();
-                const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(textoXml, "text/xml");
+                const dataInicio = parseXmlTvDate(startStr);
+                const dataFim = parseXmlTvDate(stopStr);
 
-                const programas = xmlDoc.getElementsByTagName("programme");
-                const canais = xmlDoc.getElementsByTagName("channel");
+                if (dataInicio && dataFim && dataFim >= agora && dataInicio <= meiaNoite) {
+                    const jaExiste = dadosEpgGlobais.programasPorCanal[nomeLimpo].some(
+                        p => p.titulo === titulo && p.inicio.getTime() === dataInicio.getTime()
+                    );
 
-                dadosEpgGlobais.canaisUnicos = {};
-                dadosEpgGlobais.programasPorCanal = {};
-
-                const mapaIdsParaNomeUnico = {};
-
-                // 1. Processa canais limpando resoluções (SD, HD, FHD) e agrupa por Nome Único
-                for (let i = 0; i < canais.length; i++) {
-                    const idOriginal = canais[i].getAttribute("id");
-                    const nomeBruto = canais[i].getElementsByTagName("display-name")[0]?.textContent || idOriginal;
-                    const nomeLimpo = normalizarNomeCanal(nomeBruto);
-
-                    if (nomeLimpo) {
-                        mapaIdsParaNomeUnico[idOriginal] = nomeLimpo;
-                        if (!dadosEpgGlobais.canaisUnicos[nomeLimpo]) {
-                            dadosEpgGlobais.canaisUnicos[nomeLimpo] = true;
-                            dadosEpgGlobais.programasPorCanal[nomeLimpo] = [];
-                        }
-                    }
-                }
-
-                const agora = new Date();
-                const meiaNoite = new Date();
-                meiaNoite.setHours(23, 59, 59, 999);
-
-                // 2. Associa a programação ao canal limpo unificado
-                for (let i = 0; i < programas.length; i++) {
-                    const prog = programas[i];
-                    const channelIdOriginal = prog.getAttribute("channel");
-                    const nomeLimpo = mapaIdsParaNomeUnico[channelIdOriginal];
-
-                    if (nomeLimpo && dadosEpgGlobais.programasPorCanal[nomeLimpo]) {
-                        const startStr = prog.getAttribute("start");
-                        const stopStr = prog.getAttribute("stop");
-                        const titulo = prog.getElementsByTagName("title")[0]?.textContent || "Programa sem título";
-                        const descricao = prog.getElementsByTagName("desc")[0]?.textContent || "Sem descrição disponível.";
-
-                        const dataInicio = parseXmlTvDate(startStr);
-                        const dataFim = parseXmlTvDate(stopStr);
-
-                        if (dataInicio && dataFim && dataFim >= agora && dataInicio <= meiaNoite) {
-                            // Evita duplicar o mesmo programa no mesmo horário pro mesmo canal limpo
-                            const jaExiste = dadosEpgGlobais.programasPorCanal[nomeLimpo].some(
-                                p => p.titulo === titulo && p.inicio.getTime() === dataInicio.getTime()
-                            );
-
-                            if (!jaExiste) {
-                                dadosEpgGlobais.programasPorCanal[nomeLimpo].push({
-                                    titulo,
-                                    descricao,
-                                    inicio: dataInicio,
-                                    fim: dataFim,
-                                    rolandoAgora: agora >= dataInicio && agora <= dataFim
-                                });
-                            }
-                        }
-                    }
-                }
-
-                renderizarSeletorCanaisPorCategoria();
-
-            } catch (e) {
-                console.error("Erro EPG:", e);
-                selectCanal.innerHTML = '<option value="">Guia indisponível temporariamente</option>';
-            }
-        }
-
-        // Agrupa os canais sem duplicados em categorias intuitivas
-        function renderizarSeletorCanaisPorCategoria() {
-            const selectCanal = document.getElementById('selectCanalEpg');
-            selectCanal.innerHTML = '<option value="">-- Escolha uma Categoria / Canal --</option>';
-
-            const categorias = {
-                "⚽ Esportes & SporTV": [],
-                "🎬 Filmes & Telecine / HBO": [],
-                "📺 Abertos & Notícias": [],
-                "🎨 Infantil & Variedades": [],
-                "📌 Outros Canais": []
-            };
-
-            for (const nomeCanal of Object.keys(dadosEpgGlobais.canaisUnicos)) {
-                const progs = dadosEpgGlobais.programasPorCanal[nomeCanal] || [];
-                if (progs.length > 0) {
-                    const nLower = nomeCanal.toLowerCase();
-                    if (nLower.includes('sportv') || nLower.includes('espn') || nLower.includes('premiere') || nLower.includes('combate') || nLower.includes('dazn') || nLower.includes('paramount') || nLower.includes('esporte') || nLower.includes('nba')) {
-                        categorias["⚽ Esportes & SporTV"].push(nomeCanal);
-                    } else if (nLower.includes('telecine') || nLower.includes('hbo') || nLower.includes('max') || nLower.includes('canal brasil') || nLower.includes('megapix') || nLower.includes('space') || nLower.includes('tnt') || nLower.includes('cinemax') || nLower.includes('studio') || nLower.includes('fx')) {
-                        categorias["🎬 Filmes & Telecine / HBO"].push(nomeCanal);
-                    } else if (nLower.includes('globo') || nLower.includes('sbt') || nLower.includes('record') || nLower.includes('band') || nLower.includes('redetv') || nLower.includes('cnn') || nLower.includes('globonews') || nLower.includes('jovem pan')) {
-                        categorias["📺 Abertos & Notícias"].push(nomeCanal);
-                    } else if (nLower.includes('cartoon') || nLower.includes('discovery') || nLower.includes('disney') || nLower.includes('nickelodeon') || nLower.includes('gloob') || nLower.includes('baby') || nLower.includes('toon')) {
-                        categorias["🎨 Infantil & Variedades"].push(nomeCanal);
-                    } else {
-                        categorias["📌 Outros Canais"].push(nomeCanal);
+                    if (!jaExiste) {
+                        dadosEpgGlobais.programasPorCanal[nomeLimpo].push({
+                            titulo,
+                            descricao,
+                            inicio: dataInicio,
+                            fim: dataFim,
+                            rolandoAgora: agora >= dataInicio && agora <= dataFim
+                        });
                     }
                 }
             }
-
-            for (const [catNome, canaisDaCat] of Object.entries(categorias)) {
-                if (canaisDaCat.length > 0) {
-                    const optGroup = document.createElement('optgroup');
-                    optGroup.label = catNome;
-                    
-                    canaisDaCat.sort().forEach(nomeCanal => {
-                        const opt = document.createElement('option');
-                        opt.value = nomeCanal;
-                        opt.textContent = nomeCanal;
-                        optGroup.appendChild(opt);
-                    });
-
-                    selectCanal.appendChild(optGroup);
-                }
-            }
-
-            selectCanal.onchange = (e) => {
-                mostrarProgramacaoCanal(e.target.value);
-            };
         }
 
-        // Exibe o programa atual e a grade do dia para o canal selecionado
-        window.mostrarProgramacaoCanal = (nomeCanal) => {
-            const containerDetalhes = document.getElementById('detalhesCanalEpg');
-            if (!nomeCanal) {
-                containerDetalhes.innerHTML = '<p class="text-xs text-zinc-500 text-center py-6">Selecione um canal acima para ver o que passa agora e a agenda até a meia-noite.</p>';
-                return;
-            }
+        renderizarSeletorCanaisPorCategoria();
 
-            const listaProgs = dadosEpgGlobais.programasPorCanal[nomeCanal] || [];
-            listaProgs.sort((a, b) => a.inicio - b.inicio);
-
-            let html = "";
-
-            listaProgs.forEach((p) => {
-                const hInicio = p.inicio.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                const hFim = p.fim.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                html += `
-                    <div class="p-3 rounded-xl border ${p.rolandoAgora ? 'bg-blue-600/25 border-blue-500/60' : 'bg-black/30 border-zinc-900'} space-y-1">
-                        <div class="flex justify-between items-center">
-                            <span class="text-[10px] font-mono px-2 py-0.5 rounded ${p.rolandoAgora ? 'bg-blue-500 text-white font-bold' : 'bg-zinc-800 text-zinc-300'}">${hInicio} - ${hFim}</span>
-                            ${p.rolandoAgora ? '<span class="text-[10px] text-emerald-400 font-bold animate-pulse">● NO AR AGORA</span>' : ''}
-                        </div>
-                        <h5 class="text-xs font-bold text-white">${p.titulo}</h5>
-                        <p class="text-[11px] text-zinc-400">${p.descricao}</p>
-                    </div>
-                `;
-            });
-
-            containerDetalhes.innerHTML = html || '<p class="text-xs text-zinc-500 text-center py-4">Nenhuma programação cadastrada para este canal hoje.</p>';
-        };
-
-        function parseXmlTvDate(str) {
-            if (!str || str.length < 12) return null;
-            const ano = parseInt(str.substring(0, 4), 10);
-            const mes = parseInt(str.substring(4, 6), 10) - 1;
-            const dia = parseInt(str.substring(6, 8), 10);
-            const hora = parseInt(str.substring(8, 10), 10);
-            const min = parseInt(str.substring(10, 12), 10);
-            const seg = parseInt(str.substring(12, 14) || "0", 10);
-            return new Date(ano, mes, dia, hora, min, seg);
-        }
-
-        async function carregarAvisosCliente(telefone) {
-            const containerAvisos = document.getElementById('containerAvisos');
-            containerAvisos.innerHTML = '<p class="text-xs text-zinc-500 text-center py-2">A carregar avisos...</p>';
-
-            let listaAvisosHtml = "";
-
-            try {
-                const avisoGeralSnap = await getDoc(doc(db, "configuracoes", "aviso_player"));
-                if (avisoGeralSnap.exists()) {
-                    const geral = avisoGeralSnap.data();
-                    if (geral.ativo && geral.mensagem) {
-                        listaAvisosHtml += `
-                            <div class="bg-blue-600/10 border border-blue-500/30 rounded-xl p-4 space-y-2">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-xs font-bold text-blue-400 uppercase tracking-wider">📢 ${geral.titulo || 'Aviso Geral'}</span>
-                                    <span class="text-[10px] text-zinc-400">Geral</span>
-                                </div>
-                                <p class="text-sm text-zinc-200">${geral.mensagem}</p>
-                                ${geral.imagem ? `<img src="${geral.imagem}" class="mt-2 rounded-lg max-h-32 object-cover border border-zinc-800">` : ''}
-                            </div>
-                        `;
-                    }
-                }
-
-                const subMensagensSnap = await getDocs(collection(db, "clientes", telefone, "mensagens_app"));
-                subMensagensSnap.forEach((docMsg) => {
-                    const msg = docMsg.data();
-                    listaAvisosHtml += `
-                        <div class="bg-emerald-600/10 border border-emerald-500/30 rounded-xl p-4 space-y-2">
-                            <div class="flex justify-between items-center">
-                                <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">💬 ${msg.titulo || 'Mensagem do Suporte'}</span>
-                                <span class="text-[10px] text-zinc-400">Exclusivo para você</span>
-                            </div>
-                            <p class="text-sm text-zinc-200">${msg.mensagem}</p>
-                        </div>
-                    `;
-                });
-
-                if (listaAvisosHtml === "") {
-                    containerAvisos.innerHTML = '<p class="text-xs text-zinc-500 text-center py-4">Nenhum aviso no momento.</p>';
-                } else {
-                    containerAvisos.innerHTML = listaAvisosHtml;
-                }
-
-            } catch (e) {
-                console.error("Erro ao carregar avisos:", e);
-                containerAvisos.innerHTML = '<p class="text-xs text-red-400 text-center py-2">Erro ao carregar avisos.</p>';
-            }
-        }
-
-        window.sairCliente = () => {
-            localStorage.removeItem('nextgen_cliente');
-            location.reload();
-        };
-
-        window.onload = () => {
-            const salvo = localStorage.getItem('nextgen_cliente');
-            if (salvo) {
-                const dadosCliente = JSON.parse(salvo);
-                document.getElementById('telefoneLogin').value = dadosCliente.id;
-                carregarPainelCliente(dadosCliente.id, dadosCliente);
-            }
-        };
-    </script>
-</head>
-<body class="bg-black text-white min-h-screen p-4 md:p-8 flex justify-center">
-
-    <div class="w-full max-w-md space-y-6">
-
-        <!-- TELA DE LOGIN DO CLIENTE -->
-        <div id="telaLoginCliente" class="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-6 mt-12">
-            <div class="text-center space-y-2">
-                <h1 class="text-2xl font-black text-blue-500 tracking-wide">NEXTGEN<span class="text-white">.TV</span></h1>
-                <p class="text-xs text-zinc-400">Digite seu WhatsApp cadastrado para acessar sua conta</p>
-            </div>
-
-            <div class="space-y-4">
-                <div>
-                    <label class="text-xs text-zinc-400 block mb-1">WhatsApp / Telefone</label>
-                    <input type="text" id="telefoneLogin" placeholder="Ex: 51999999999" 
-                        class="w-full bg-black border border-zinc-800 rounded-xl p-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition">
-                </div>
-                <button onclick="fazerLoginCliente()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl text-xs shadow-lg shadow-blue-600/20 transition">
-                    Entrar na Minha Conta
-                </button>
-                <p id="erroLogin" class="text-xs text-red-400 text-center min-h-[1rem]"></p>
-            </div>
-        </div>
-
-        <!-- PAINEL PRINCIPAL DO CLIENTE -->
-        <div id="painelCliente" class="hidden space-y-5">
-            
-            <!-- Cabeçalho -->
-            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 flex justify-between items-center shadow-xl">
-                <div>
-                    <h2 id="nomeClienteExibicao" class="text-lg font-bold text-white">Carregando...</h2>
-                    <span id="planoClienteExibicao" class="text-xs text-blue-400 font-semibold">Plano</span>
-                </div>
-                <div class="flex flex-col items-end gap-2">
-                    <span id="statusVencimentoExibicao" class="text-xs px-3 py-1 rounded-full font-bold bg-zinc-800 text-zinc-300">...</span>
-                    <button onclick="sairCliente()" class="text-[11px] text-zinc-500 hover:text-red-400 transition">Sair</button>
-                </div>
-            </div>
-
-            <!-- BOTÃO DOWNLOAD APP EXCLUSIVO -->
-            <a href="https://drive.google.com/file/d/1rODDN7dHDnb65KCPK4Gynk4sRHLuVK5V/view?usp=drive_link" target="_blank" 
-               class="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 border border-blue-400/40 animate-pulse">
-                📱 Baixar APP do Cliente
-            </a>
-
-            <!-- CREDENCIAIS DE ACESSO -->
-            <div class="bg-zinc-950 border border-blue-600/30 rounded-2xl p-5 shadow-xl space-y-3">
-                <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">🔑 Seus Dados de Acesso</h3>
-                <div class="bg-black/50 p-4 rounded-xl border border-zinc-900 space-y-2 font-mono text-sm">
-                    <div class="flex justify-between">
-                        <span class="text-zinc-500">Usuário:</span>
-                        <span id="usuarioExibicao" class="text-white font-bold">...</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-zinc-500">Senha:</span>
-                        <span id="senhaExibicao" class="text-white font-bold">...</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-zinc-500">Servidor:</span>
-                        <span id="servidorExibicao" class="text-blue-400 font-bold">...</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- GUIA DE PROGRAMAÇÃO POR CATEGORIAS E CANAIS (SEM REPETIÇÕES DE RESOLUÇÃO) -->
-            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-xl space-y-4">
-                <div class="flex justify-between items-center">
-                    <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">📖 Guia TV & Canais</h3>
-                    <span class="text-[10px] text-blue-400 font-mono">Programação Diária</span>
-                </div>
-
-                <!-- Seletor de Canais por Categoria -->
-                <div class="space-y-2">
-                    <p class="text-[11px] text-zinc-400 font-bold">📺 Escolha a Categoria e o Canal:</p>
-                    <select id="selectCanalEpg" class="w-full bg-black border border-zinc-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-blue-500 transition">
-                        <option value="">A carregar canais...</option>
-                    </select>
-                    
-                    <div id="detalhesCanalEpg" class="space-y-2 max-h-72 overflow-y-auto pr-1 mt-3">
-                        <p class="text-xs text-zinc-500 text-center py-6">Selecione um canal acima para ver o que passa agora e o restante da agenda até a meia-noite.</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- BOTÃO DE ATALHO EXTERNO PARA JOGOS DO DIA -->
-            <a href="https://www.uol.com.br/esporte/futebol/central-de-jogos/#/" target="_blank" 
-               class="w-full bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-white font-bold py-3.5 px-4 rounded-2xl text-xs flex items-center justify-between transition shadow-lg">
-                <span class="flex items-center gap-2">⚽ Consulte os Jogos do Dia <span class="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded font-normal">Externo</span></span>
-                <span class="text-blue-400 text-sm">➔</span>
-            </a>
-
-            <!-- CENTRAL DE AVISOS -->
-            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-xl space-y-3">
-                <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">📢 Avisos & Comunicados</h3>
-                <div id="containerAvisos" class="space-y-3">
-                    <!-- Os avisos carregam aqui -->
-                </div>
-            </div>
-
-            <!-- BOTÃO WHATSAPP SUPORTE -->
-            <a href="https://wa.me/5551989498171?text=Olá,%20preciso%20de%20suporte%20na%20NextGen.TV" target="_blank" 
-               class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2">
-                💬 Falar com Suporte no WhatsApp
-            </a>
-
-            <!-- GUIA DE INSTALAÇÃO PASSO A PASSO -->
-            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-xl space-y-4">
-                <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">📺 Como Instalar na sua TV</h3>
-                
-                <!-- Android TV / Fire Stick -->
-                <div class="border-b border-zinc-900 pb-3 space-y-2 text-xs text-zinc-300">
-                    <p class="font-bold text-blue-400">🤖 Android TV, TV Box e Fire Stick:</p>
-                    <ol class="list-decimal pl-4 space-y-1 text-zinc-400">
-                        <li>Instale o app <strong class="text-white">Downloader</strong> na loja de apps da sua TV.</li>
-                        <li>Abra o Downloader e digite o código <strong class="text-blue-400">3542314</strong>, depois clique em Ir (Go).</li>
-                        <li>Baixe, instale o player e abra.</li>
-                        <li>Insira o <strong class="text-white">Usuário</strong> e <strong class="text-white">Senha</strong> informados acima.</li>
-                    </ol>
-                </div>
-
-                <!-- Samsung / LG -->
-                <div class="space-y-2 text-xs text-zinc-300">
-                    <p class="font-bold text-blue-400">📺 Smart TVs Samsung e LG:</p>
-                    <ol class="list-decimal pl-4 space-y-1 text-zinc-400">
-                        <li>Abra a loja da TV e procure por <strong class="text-white">IPTV Smarters</strong> (ou Smarters Player Lite).</li>
-                        <li>Abra o app e escolha <strong class="text-white">Login with Xtream Codes API</strong>.</li>
-                        <li>Preencha:
-                            <br>• Nome: <span class="text-white">NextGen</span>
-                            <br>• Usuário e Senha acima
-                            <br>• URL: <span class="text-blue-400">http://plus.lat</span>
-                        </li>
-                    </ol>
-                </div>
-            </div>
-
-        </div>
-
-    </div>
-
-</body>
-</html>
+    } catch (e) {
+        console.error("Erro EPG:", e);
+        selectCanal.innerHTML = '<option value="">Guia indisponível no navegador</option>';
+    }
+}
