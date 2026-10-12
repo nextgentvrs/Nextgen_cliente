@@ -9,7 +9,7 @@
     <!-- SDKs do Firebase (Modular v10) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, collection, getDocs, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBrp9JlMd9zBUqzByPRBLCStLiLbH5z80Y",
@@ -24,7 +24,6 @@
         const db = getFirestore(app);
         const SERVIDOR_FIXO = "http://plus.lat";
 
-        // Função de Login do Cliente via Telefone
         window.fazerLoginCliente = async () => {
             const telefoneInput = document.getElementById('telefoneLogin').value.trim().replace(/\D/g, '');
             const erroEl = document.getElementById('erroLogin');
@@ -57,7 +56,6 @@
             }
         };
 
-        // Carrega as informações no painel do cliente
         async function carregarPainelCliente(telefone, dados) {
             document.getElementById('telaLoginCliente').classList.add('hidden');
             document.getElementById('painelCliente').classList.remove('hidden');
@@ -86,9 +84,114 @@
             }
 
             carregarAvisosCliente(telefone);
+            escutarPromocaoAtiva(telefone, dados);
         }
 
-        // Carrega avisos gerais e mensagens personalizadas
+        // ================= SISTEMA DE PROMOÇÃO NO CLIENTE =================
+        function escutarPromocaoAtiva(telefoneCliente, dadosCliente) {
+            const containerPromo = document.getElementById('containerPromocao');
+
+            onSnapshot(doc(db, "configuracoes", "promocao_ativa"), async (docSnap) => {
+                if (docSnap.exists() && docSnap.data().ativa) {
+                    const promo = docSnap.data();
+
+                    // Formata datas
+                    const dataIniFmt = promo.dataInicio ? new Date(promo.dataInicio + "T00:00:00").toLocaleDateString('pt-BR') : '';
+                    const dataFimFmt = promo.dataFim ? new Date(promo.dataFim + "T00:00:00").toLocaleDateString('pt-BR') : '';
+                    const periodoTexto = (dataIniFmt && dataFimFmt) ? `Válido de ${dataIniFmt} até ${dataFimFmt}` : 'Promoção por tempo limitado!';
+
+                    // Verifica se já participou
+                    const partSnap = await getDoc(doc(db, "promocao_participantes", telefoneCliente));
+                    let jaInscritoHtml = "";
+
+                    if (partSnap.exists()) {
+                        const insc = partSnap.data();
+                        jaInscritoHtml = `
+                            <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-center space-y-1">
+                                <span class="text-xs text-amber-400 font-bold block">✨ Você já está participando!</span>
+                                <p class="text-xs text-zinc-300">Seu número da sorte é: <strong class="text-amber-400 font-mono text-base">#${insc.numeroSorte}</strong></p>
+                            </div>
+                        `;
+                    } else {
+                        jaInscritoHtml = `
+                            <button onclick="window.abrirModalInscricaoPromo('${promo.titulo}', '${promo.premio}')" class="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-extrabold py-3 px-4 rounded-xl text-xs transition shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 border border-amber-300">
+                                🎁 CLIQUE AQUI PARA PARTICIPAR!
+                            </button>
+                        `;
+                    }
+
+                    containerPromo.innerHTML = `
+                        <div class="relative overflow-hidden bg-gradient-to-b from-amber-950/40 to-zinc-950 border-2 border-amber-500/50 rounded-2xl p-5 shadow-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <span class="bg-amber-500/20 text-amber-400 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-500/30 animate-pulse">🔥 PROMOÇÃO ATIVA</span>
+                                <span class="text-[10px] text-zinc-400 font-mono">${periodoTexto}</span>
+                            </div>
+                            
+                            <div>
+                                <h3 class="text-lg font-black text-amber-300">${promo.titulo}</h3>
+                                <p class="text-xs text-zinc-300 mt-0.5">${promo.premio}</p>
+                            </div>
+
+                            ${jaInscritoHtml}
+                        </div>
+                    `;
+                } else {
+                    // Plaquinha Estática quando não houver promoção
+                    containerPromo.innerHTML = `
+                        <div class="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-5 text-center space-y-2 shadow-xl backdrop-blur-sm">
+                            <div class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 text-amber-400 text-lg">
+                                🎁
+                            </div>
+                            <h3 class="text-sm font-bold text-zinc-300">Aguarde para futuros eventos</h3>
+                            <p class="text-[11px] text-zinc-500">Fique atento! Em breve lançaremos sorteios e prêmios exclusivos aqui.</p>
+                        </div>
+                    `;
+                }
+            });
+        }
+
+        window.abrirModalInscricaoPromo = (titulo, premio) => {
+            const salvo = localStorage.getItem('nextgen_cliente');
+            if (salvo) {
+                const dados = JSON.parse(salvo);
+                document.getElementById('promoNomeInput').value = dados.nome || '';
+                document.getElementById('promoZapInput').value = dados.id || '';
+            }
+            document.getElementById('modalInscricaoPromo').classList.remove('hidden');
+        };
+
+        window.fecharModalInscricaoPromo = () => {
+            document.getElementById('modalInscricaoPromo').classList.add('hidden');
+        };
+
+        window.confirmarParticipacaoSorteio = async () => {
+            const nome = document.getElementById('promoNomeInput').value.trim();
+            const zap = document.getElementById('promoZapInput').value.trim().replace(/\D/g, '');
+
+            if (!nome || !zap) {
+                alert("Por favor, preencha o Nome e o WhatsApp.");
+                return;
+            }
+
+            // Gera número aleatório único de 1 a 1.000.000
+            const numeroSorte = Math.floor(100000 + Math.random() * 900000);
+
+            try {
+                await setDoc(doc(db, "promocao_participantes", zap), {
+                    nome,
+                    whatsapp: zap,
+                    numeroSorte,
+                    dataParticipacao: new Date().toISOString()
+                });
+
+                alert(`Inscrição realizada com sucesso! 🎉\nSeu Número da Sorte é: #${numeroSorte}`);
+                fecharModalInscricaoPromo();
+            } catch (e) {
+                console.error("Erro ao registrar participação:", e);
+                alert("Erro ao se inscrever na promoção.");
+            }
+        };
+
         async function carregarAvisosCliente(telefone) {
             const containerAvisos = document.getElementById('containerAvisos');
             containerAvisos.innerHTML = '<p class="text-xs text-zinc-500 text-center py-2">A carregar avisos...</p>';
@@ -193,6 +296,11 @@
                 </div>
             </div>
 
+            <!-- CARD DINÂMICO DE PROMOÇÃO / FUTUROS EVENTOS -->
+            <div id="containerPromocao">
+                <!-- Injetado em tempo real via JS (Plaquinha "Futuros Eventos" ou "Banner da Promoção") -->
+            </div>
+
             <!-- BOTÃO DOWNLOAD APP EXCLUSIVO -->
             <a href="https://drive.google.com/file/d/1rODDN7dHDnb65KCPK4Gynk4sRHLuVK5V/view?usp=drive_link" target="_blank" 
                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 border border-blue-400/40 animate-pulse">
@@ -271,6 +379,39 @@
 
         </div>
 
+    </div>
+
+    <!-- MODAL DE INSCRIÇÃO NA PROMOÇÃO -->
+    <div id="modalInscricaoPromo" class="hidden fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="w-full max-w-sm bg-zinc-950 border border-amber-500/40 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div class="text-center space-y-1">
+                <span class="text-2xl">🎁</span>
+                <h3 class="text-lg font-black text-amber-400">Inscrição na Promoção</h3>
+                <p class="text-xs text-zinc-400">Preencha seus dados para gerar seu número da sorte único!</p>
+            </div>
+
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-zinc-400 block mb-1">Seu Nome</label>
+                    <input type="text" id="promoNomeInput" placeholder="Ex: João Silva" 
+                        class="w-full bg-black border border-zinc-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-500 transition">
+                </div>
+                <div>
+                    <label class="text-xs text-zinc-400 block mb-1">WhatsApp</label>
+                    <input type="text" id="promoZapInput" placeholder="Ex: 51999999999" 
+                        class="w-full bg-black border border-zinc-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-500 transition font-mono">
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-2 pt-2">
+                <button onclick="confirmarParticipacaoSorteio()" class="w-full bg-amber-500 hover:bg-amber-400 text-black font-extrabold py-3 rounded-xl text-xs transition shadow-lg shadow-amber-500/20">
+                    ✨ Confirmar Inscrição e Gerar Número
+                </button>
+                <button onclick="fecharModalInscricaoPromo()" class="w-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border border-zinc-800 py-2.5 rounded-xl text-xs transition">
+                    Cancelar
+                </button>
+            </div>
+        </div>
     </div>
 
 </body>
