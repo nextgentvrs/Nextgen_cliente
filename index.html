@@ -9,7 +9,7 @@
     <!-- SDKs do Firebase (Modular v10) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, doc, getDoc, collection, getDocs, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, collection, getDocs, setDoc, onSnapshot, query, where, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBrp9JlMd9zBUqzByPRBLCStLiLbH5z80Y",
@@ -88,69 +88,107 @@
         }
 
         // ================= SISTEMA DE PROMOÇÃO NO CLIENTE =================
-        function escutarPromocaoAtiva(telefoneCliente, dadosCliente) {
-            const containerPromo = document.getElementById('containerPromocao');
+        let promoAtual = null;
+        let minhaPromo = null;
+        let telefoneSessao = "";
+        let pararPromoListener = null;
 
-            onSnapshot(doc(db, "configuracoes", "promocao_ativa"), async (docSnap) => {
-                if (docSnap.exists() && docSnap.data().ativa) {
-                    const promo = docSnap.data();
+        const escH = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmtBR = (s) => s ? s.split('-').reverse().join('/') : '';
+        const hojeISO = () => {
+            const d = new Date();
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        };
+        const lerPart = (id) => { try { return JSON.parse(localStorage.getItem('promo_part_' + id) || 'null'); } catch (e) { return null; } };
+        const gravarPart = (id, v) => { try { localStorage.setItem('promo_part_' + id, JSON.stringify(v)); } catch (e) {} };
+        const normalizaTel = (v) => {
+            let d = String(v || '').replace(/\D/g, '');
+            if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+            return d;
+        };
 
-                    // Formata datas
-                    const dataIniFmt = promo.dataInicio ? new Date(promo.dataInicio + "T00:00:00").toLocaleDateString('pt-BR') : '';
-                    const dataFimFmt = promo.dataFim ? new Date(promo.dataFim + "T00:00:00").toLocaleDateString('pt-BR') : '';
-                    const periodoTexto = (dataIniFmt && dataFimFmt) ? `Válido de ${dataIniFmt} até ${dataFimFmt}` : 'Promoção por tempo limitado!';
+        const PLAQUINHA_SEM_PROMO = `
+            <div class="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-5 text-center space-y-2 shadow-xl backdrop-blur-sm">
+                <div class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 text-amber-400 text-lg">🎁</div>
+                <h3 class="text-sm font-bold text-zinc-300">Aguarde novas promoções</h3>
+                <p class="text-[11px] text-zinc-500">Fique atento! Quando lançarmos um sorteio, você é avisado e ele aparece aqui.</p>
+            </div>`;
 
-                    // Verifica se já participou
-                    const partSnap = await getDoc(doc(db, "promocao_participantes", telefoneCliente));
-                    let jaInscritoHtml = "";
+        function desenharPromo() {
+            const container = document.getElementById('containerPromocao');
+            const p = promoAtual;
+            if (!p) { container.innerHTML = PLAQUINHA_SEM_PROMO; return; }
 
-                    if (partSnap.exists()) {
-                        const insc = partSnap.data();
-                        jaInscritoHtml = `
-                            <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-center space-y-1">
-                                <span class="text-xs text-amber-400 font-bold block">✨ Você já está participando!</span>
-                                <p class="text-xs text-zinc-300">Seu número da sorte é: <strong class="text-amber-400 font-mono text-base">#${insc.numeroSorte}</strong></p>
-                            </div>
-                        `;
-                    } else {
-                        jaInscritoHtml = `
-                            <button onclick="window.abrirModalInscricaoPromo('${promo.titulo}', '${promo.premio}')" class="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-extrabold py-3 px-4 rounded-xl text-xs transition shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 border border-amber-300">
-                                🎁 CLIQUE AQUI PARA PARTICIPAR!
-                            </button>
-                        `;
-                    }
+            const hoje = hojeISO();
+            let acao = '';
+            if (minhaPromo) {
+                acao = `
+                    <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-center space-y-1">
+                        <span class="text-xs text-amber-400 font-bold block">✨ Você já está participando!</span>
+                        <p class="text-xs text-zinc-300">Seu número da sorte é: <strong class="text-amber-400 font-mono text-base">#${escH(minhaPromo.numero)}</strong></p>
+                    </div>`;
+            } else if (hoje < p.dataInicio) {
+                acao = `<p class="text-xs text-center text-zinc-300 bg-zinc-900 border border-zinc-800 rounded-xl p-3">⏰ As inscrições abrem dia ${fmtBR(p.dataInicio)}. Volte aqui!</p>`;
+            } else if (hoje > p.dataFim) {
+                acao = `<p class="text-xs text-center text-zinc-300 bg-zinc-900 border border-zinc-800 rounded-xl p-3">🔒 Inscrições encerradas. Aguarde o resultado do sorteio!</p>`;
+            } else {
+                acao = `
+                    <button onclick="abrirModalInscricaoPromo()" class="w-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-extrabold py-3.5 rounded-xl text-sm shadow-lg shadow-amber-500/30 transition">
+                        🎁 CLIQUE AQUI PARA PARTICIPAR!
+                    </button>`;
+            }
 
-                    containerPromo.innerHTML = `
-                        <div class="relative overflow-hidden bg-gradient-to-b from-amber-950/40 to-zinc-950 border-2 border-amber-500/50 rounded-2xl p-5 shadow-2xl space-y-3">
-                            <div class="flex items-center justify-between">
-                                <span class="bg-amber-500/20 text-amber-400 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-500/30 animate-pulse">🔥 PROMOÇÃO ATIVA</span>
-                                <span class="text-[10px] text-zinc-400 font-mono">${periodoTexto}</span>
-                            </div>
-                            
-                            <div>
-                                <h3 class="text-lg font-black text-amber-300">${promo.titulo}</h3>
-                                <p class="text-xs text-zinc-300 mt-0.5">${promo.premio}</p>
-                            </div>
-
-                            ${jaInscritoHtml}
-                        </div>
-                    `;
-                } else {
-                    // Plaquinha Estática quando não houver promoção
-                    containerPromo.innerHTML = `
-                        <div class="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-5 text-center space-y-2 shadow-xl backdrop-blur-sm">
-                            <div class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 text-amber-400 text-lg">
-                                🎁
-                            </div>
-                            <h3 class="text-sm font-bold text-zinc-300">Aguarde para futuros eventos</h3>
-                            <p class="text-[11px] text-zinc-500">Fique atento! Em breve lançaremos sorteios e prêmios exclusivos aqui.</p>
-                        </div>
-                    `;
-                }
-            });
+            container.innerHTML = `
+                <div class="relative overflow-hidden bg-gradient-to-b from-amber-950/40 to-zinc-950 border-2 border-amber-500/50 rounded-2xl p-5 shadow-2xl space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="bg-amber-500/20 text-amber-400 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-500/30 animate-pulse">🔥 PROMOÇÃO</span>
+                        <span class="text-[10px] text-zinc-400 font-mono">Inscrições de ${fmtBR(p.dataInicio)} até ${fmtBR(p.dataFim)}</span>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-black text-amber-300">${escH(p.titulo)}</h3>
+                        <p class="text-sm text-amber-200 font-bold mt-0.5">🏆 ${escH(p.premio)}</p>
+                        ${p.descricao ? `<p class="text-xs text-zinc-300 mt-2">${escH(p.descricao)}</p>` : ''}
+                    </div>
+                    ${acao}
+                </div>`;
         }
 
-        window.abrirModalInscricaoPromo = (titulo, premio) => {
+        function escutarPromocaoAtiva(telefoneCliente, dadosCliente) {
+            telefoneSessao = normalizaTel(telefoneCliente);
+            const container = document.getElementById('containerPromocao');
+            container.innerHTML = PLAQUINHA_SEM_PROMO;
+            if (pararPromoListener) pararPromoListener();
+
+            pararPromoListener = onSnapshot(
+                query(collection(db, "promocoes"), where("status", "==", "ativa")),
+                async (snap) => {
+                    let melhor = null;
+                    snap.forEach((d) => {
+                        const p = { id: d.id, ...d.data() };
+                        if (!melhor || (p.criadaEm?.seconds || 0) > (melhor.criadaEm?.seconds || 0)) melhor = p;
+                    });
+
+                    if (!melhor) { promoAtual = null; minhaPromo = null; desenharPromo(); return; }
+
+                    // avisa o app (Kotlin) que o cliente já viu esta promoção -> evita notificação repetida
+                    try { if (window.AndroidApp) window.AndroidApp.promoVista(melhor.id); } catch (e) {}
+
+                    let minha = lerPart(melhor.id);
+                    if (!minha && telefoneSessao) {
+                        try {
+                            const ps = await getDoc(doc(db, "participantes_promocao", melhor.id + '_' + telefoneSessao));
+                            if (ps.exists()) { minha = { numero: ps.data().numero, nome: ps.data().nome }; gravarPart(melhor.id, minha); }
+                        } catch (e) { console.warn("Não foi possível checar participação:", e); }
+                    }
+                    promoAtual = melhor;
+                    minhaPromo = minha;
+                    desenharPromo();
+                },
+                (err) => { console.error("Erro ao ler promoções:", err); document.getElementById('containerPromocao').innerHTML = PLAQUINHA_SEM_PROMO; }
+            );
+        }
+
+        window.abrirModalInscricaoPromo = () => {
             const salvo = localStorage.getItem('nextgen_cliente');
             if (salvo) {
                 const dados = JSON.parse(salvo);
@@ -165,30 +203,60 @@
         };
 
         window.confirmarParticipacaoSorteio = async () => {
-            const nome = document.getElementById('promoNomeInput').value.trim();
-            const zap = document.getElementById('promoZapInput').value.trim().replace(/\D/g, '');
+            const p = promoAtual;
+            if (!p) { alert("Esta promoção não está mais disponível."); fecharModalInscricaoPromo(); return; }
 
-            if (!nome || !zap) {
-                alert("Por favor, preencha o Nome e o WhatsApp.");
-                return;
-            }
+            const nome = document.getElementById('promoNomeInput').value.trim().replace(/\s+/g, ' ');
+            const tel = normalizaTel(document.getElementById('promoZapInput').value);
 
-            // Gera número aleatório único de 1 a 1.000.000
-            const numeroSorte = Math.floor(100000 + Math.random() * 900000);
+            if (nome.length < 3) { alert("Digite seu nome completo."); return; }
+            if (!/^\d{10,11}$/.test(tel)) { alert("Digite o WhatsApp com DDD. Ex: 51999999999"); return; }
+            const hoje = hojeISO();
+            if (hoje < p.dataInicio || hoje > p.dataFim) { alert("As inscrições não estão abertas neste momento."); return; }
 
+            const btn = document.getElementById('btnConfirmarPromo');
+            btn.disabled = true;
+            btn.classList.add('opacity-60');
+            const textoOriginal = btn.innerText;
+            btn.innerText = "Gerando seu número...";
+
+            const partRef = doc(db, "participantes_promocao", p.id + '_' + tel);
             try {
-                await setDoc(doc(db, "promocao_participantes", zap), {
-                    nome,
-                    whatsapp: zap,
-                    numeroSorte,
-                    dataParticipacao: new Date().toISOString()
-                });
+                let final = null;
+                let jaExistia = false;
+                for (let i = 0; i < 30 && !final; i++) {
+                    // número aleatório de 5 dígitos; o marcador garante que não repete
+                    const numero = 10000 + Math.floor(Math.random() * 90000);
+                    const numRef = doc(db, "promocoes", p.id, "numeros", String(numero));
+                    const res = await runTransaction(db, async (tx) => {
+                        const ja = await tx.get(partRef);
+                        if (ja.exists()) return { existente: ja.data() };
+                        const n = await tx.get(numRef);
+                        if (n.exists()) return { ocupado: true };
+                        tx.set(numRef, { tel });
+                        tx.set(partRef, { promoId: p.id, nome, telefone: tel, numero, criadoEm: serverTimestamp() });
+                        return { numero, nome };
+                    });
+                    if (res.ocupado) continue;
+                    if (res.existente) { jaExistia = true; final = { numero: res.existente.numero, nome: res.existente.nome }; }
+                    else final = res;
+                }
+                if (!final) throw new Error("sem número livre");
 
-                alert(`Inscrição realizada com sucesso! 🎉\nSeu Número da Sorte é: #${numeroSorte}`);
+                minhaPromo = { numero: final.numero, nome: final.nome };
+                gravarPart(p.id, minhaPromo);
                 fecharModalInscricaoPromo();
+                desenharPromo();
+                alert(jaExistia
+                    ? `Você já estava participando! 🎉\nSeu Número da Sorte é: #${final.numero}`
+                    : `Inscrição realizada com sucesso! 🎉\nSeu Número da Sorte é: #${final.numero}`);
             } catch (e) {
                 console.error("Erro ao registrar participação:", e);
-                alert("Erro ao se inscrever na promoção.");
+                alert("Não foi possível concluir a inscrição. Verifique a internet e tente de novo.");
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('opacity-60');
+                btn.innerText = textoOriginal;
             }
         };
 
@@ -404,7 +472,7 @@
             </div>
 
             <div class="flex flex-col gap-2 pt-2">
-                <button onclick="confirmarParticipacaoSorteio()" class="w-full bg-amber-500 hover:bg-amber-400 text-black font-extrabold py-3 rounded-xl text-xs transition shadow-lg shadow-amber-500/20">
+                <button id="btnConfirmarPromo" onclick="confirmarParticipacaoSorteio()" class="w-full bg-amber-500 hover:bg-amber-400 text-black font-extrabold py-3 rounded-xl text-xs transition shadow-lg shadow-amber-500/20">
                     ✨ Confirmar Inscrição e Gerar Número
                 </button>
                 <button onclick="fecharModalInscricaoPromo()" class="w-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border border-zinc-800 py-2.5 rounded-xl text-xs transition">
