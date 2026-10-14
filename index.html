@@ -173,7 +173,6 @@
 
                     if (!melhor) { promoAtual = null; minhaPromo = null; desenharPromo(); return; }
 
-                    // avisa o app (Kotlin) que o cliente já viu esta promoção -> evita notificação repetida
                     try { if (window.AndroidApp) window.AndroidApp.promoVista(melhor.id); } catch (e) {}
 
                     let minha = lerPart(melhor.id);
@@ -228,7 +227,6 @@
                 let final = null;
                 let jaExistia = false;
                 for (let i = 0; i < 30 && !final; i++) {
-                    // número aleatório de 5 dígitos; o marcador garante que não repete
                     const numero = 10000 + Math.floor(Math.random() * 90000);
                     const numRef = doc(db, "promocoes", p.id, "numeros", String(numero));
                     const res = await runTransaction(db, async (tx) => {
@@ -273,7 +271,6 @@
         const lerLidas = (tel) => { try { return JSON.parse(localStorage.getItem(lidasKey(tel)) || '[]'); } catch (e) { return []; } };
         const escM = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-        // diz ao app (Kotlin) até onde o cliente já viu, para não notificar de novo
         function avisarAppVisto() {
             try {
                 if (!window.AndroidApp || document.visibilityState !== 'visible') return;
@@ -364,7 +361,6 @@
             });
         }
 
-        // busca dados atualizados do cliente (dias restantes, plano, usuário, senha)
         async function atualizarDadosCliente() {
             const salvo = localStorage.getItem('nextgen_cliente');
             if (!salvo) return;
@@ -444,7 +440,7 @@
 
             <!-- CARD DINÂMICO DE PROMOÇÃO / FUTUROS EVENTOS -->
             <div id="containerPromocao">
-                <!-- Injetado em tempo real via JS (Plaquinha "Futuros Eventos" ou "Banner da Promoção") -->
+                <!-- Injetado em tempo real via JS -->
             </div>
 
             <!-- BOTÃO DOWNLOAD APP EXCLUSIVO -->
@@ -479,7 +475,7 @@
                 <span class="text-blue-400 text-sm">➔</span>
             </a>
 
-            <!-- MINHAS MENSAGENS (individuais) -->
+            <!-- MINHAS MENSAGENS -->
             <div class="bg-zinc-950 border border-emerald-500/30 rounded-2xl p-5 shadow-xl space-y-3">
                 <div class="flex items-center justify-between gap-2">
                     <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">💬 Minhas Mensagens</h3>
@@ -494,9 +490,7 @@
             <!-- CENTRAL DE AVISOS -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-xl space-y-3">
                 <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">📢 Avisos & Comunicados</h3>
-                <div id="containerAvisos" class="space-y-3">
-                    <!-- Os avisos carregam aqui -->
-                </div>
+                <div id="containerAvisos" class="space-y-3"></div>
             </div>
 
             <!-- BOTÃO WHATSAPP SUPORTE -->
@@ -509,7 +503,6 @@
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-xl space-y-4">
                 <h3 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">📺 Como Instalar na sua TV</h3>
                 
-                <!-- Android TV / Fire Stick -->
                 <div class="border-b border-zinc-900 pb-3 space-y-2 text-xs text-zinc-300">
                     <p class="font-bold text-blue-400">🤖 Android TV, TV Box e Fire Stick:</p>
                     <ol class="list-decimal pl-4 space-y-1 text-zinc-400">
@@ -520,7 +513,6 @@
                     </ol>
                 </div>
 
-                <!-- Samsung / LG -->
                 <div class="space-y-2 text-xs text-zinc-300">
                     <p class="font-bold text-blue-400">📺 Smart TVs Samsung e LG:</p>
                     <ol class="list-decimal pl-4 space-y-1 text-zinc-400">
@@ -572,207 +564,249 @@
         </div>
     </div>
 
+    <!-- ================= ROBOZINHO DE ATENDIMENTO ================= -->
+    <style>
+    #nbBtn{position:fixed;right:16px;bottom:16px;z-index:60;width:62px;height:62px;border-radius:50%;border:0;background:#00E5FF;color:#04121a;font-size:30px;cursor:pointer;box-shadow:0 8px 30px rgba(0,229,255,.45);animation:nbp 2.2s infinite}
+    @keyframes nbp{0%{box-shadow:0 0 0 0 rgba(0,229,255,.55)}70%{box-shadow:0 0 0 18px rgba(0,229,255,0)}100%{box-shadow:0 0 0 0 rgba(0,229,255,0)}}
+    #nbBox{position:fixed;right:12px;bottom:90px;z-index:61;width:min(94vw,380px);height:min(72vh,560px);background:#0b1220;border:1px solid #1c2740;border-radius:20px;display:none;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6);font-family:system-ui,-apple-system,Roboto,sans-serif}
+    #nbBox.open{display:flex}
+    .nb-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0d1a30;border-bottom:1px solid #1c2740;color:#e8eefc;font-weight:700;font-size:15px}
+    .nb-head small{display:block;font-weight:400;font-size:11px;color:#22c55e}
+    .nb-x{background:none;border:0;color:#9aa6bd;font-size:26px;line-height:1;cursor:pointer}
+    #nbMsgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+    .nb-b{max-width:88%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.4;white-space:pre-line;word-break:break-word}
+    .nb-bot{align-self:flex-start;background:#14203a;color:#e8eefc;border-bottom-left-radius:4px}
+    .nb-user{align-self:flex-end;background:#00E5FF;color:#04121a;font-weight:600;border-bottom-right-radius:4px}
+    .nb-opts{display:flex;flex-wrap:wrap;gap:8px}
+    .nb-opt{background:transparent;border:1.5px solid #00E5FF;color:#00E5FF;border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;text-align:left}
+    .nb-opt:active{background:#00E5FF;color:#04121a}
+    .nb-wa{display:inline-block;background:#22c55e;color:#04210f;font-weight:800;border-radius:14px;padding:12px 16px;text-decoration:none;font-size:14px}
+    .nb-typing{align-self:flex-start;color:#8a94a6;font-size:13px}
+    #nbIn{display:none;gap:8px;padding:10px;border-top:1px solid #1c2740;background:#0d1423}
+    #nbIn.show{display:flex}
+    #nbIn input{flex:1;min-width:0;background:#05080f;border:1px solid #1c2740;color:#e8eefc;border-radius:12px;padding:11px 12px;font-size:16px;outline:none}
+    #nbIn button{background:#00E5FF;color:#04121a;border:0;border-radius:12px;padding:0 16px;font-weight:800;cursor:pointer}
+    </style>
 
-<!-- ================= ROBOZINHO DE ATENDIMENTO ================= -->
-<style>
-#nbBtn{position:fixed;right:16px;bottom:16px;z-index:60;width:62px;height:62px;border-radius:50%;border:0;background:#00E5FF;color:#04121a;font-size:30px;cursor:pointer;box-shadow:0 8px 30px rgba(0,229,255,.45);animation:nbp 2.2s infinite}
-@keyframes nbp{0%{box-shadow:0 0 0 0 rgba(0,229,255,.55)}70%{box-shadow:0 0 0 18px rgba(0,229,255,0)}100%{box-shadow:0 0 0 0 rgba(0,229,255,0)}}
-#nbBox{position:fixed;right:12px;bottom:90px;z-index:61;width:min(94vw,380px);height:min(72vh,560px);background:#0b1220;border:1px solid #1c2740;border-radius:20px;display:none;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6);font-family:system-ui,-apple-system,Roboto,sans-serif}
-#nbBox.open{display:flex}
-.nb-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0d1a30;border-bottom:1px solid #1c2740;color:#e8eefc;font-weight:700;font-size:15px}
-.nb-head small{display:block;font-weight:400;font-size:11px;color:#22c55e}
-.nb-x{background:none;border:0;color:#9aa6bd;font-size:26px;line-height:1;cursor:pointer}
-#nbMsgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
-.nb-b{max-width:88%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.4;white-space:pre-line;word-break:break-word}
-.nb-bot{align-self:flex-start;background:#14203a;color:#e8eefc;border-bottom-left-radius:4px}
-.nb-user{align-self:flex-end;background:#00E5FF;color:#04121a;font-weight:600;border-bottom-right-radius:4px}
-.nb-opts{display:flex;flex-wrap:wrap;gap:8px}
-.nb-opt{background:transparent;border:1.5px solid #00E5FF;color:#00E5FF;border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;text-align:left}
-.nb-opt:active{background:#00E5FF;color:#04121a}
-.nb-wa{display:inline-block;background:#22c55e;color:#04210f;font-weight:800;border-radius:14px;padding:12px 16px;text-decoration:none;font-size:14px}
-.nb-typing{align-self:flex-start;color:#8a94a6;font-size:13px}
-#nbIn{display:none;gap:8px;padding:10px;border-top:1px solid #1c2740;background:#0d1423}
-#nbIn.show{display:flex}
-#nbIn input{flex:1;min-width:0;background:#05080f;border:1px solid #1c2740;color:#e8eefc;border-radius:12px;padding:11px 12px;font-size:16px;outline:none}
-#nbIn button{background:#00E5FF;color:#04121a;border:0;border-radius:12px;padding:0 16px;font-weight:800;cursor:pointer}
-</style>
+    <button id="nbBtn" aria-label="Assistente NextGen">🤖</button>
+    <div id="nbBox">
+      <div class="nb-head"><div>🤖 Assistente NextGen<small>● online</small></div><button class="nb-x" id="nbX" aria-label="Fechar">×</button></div>
+      <div id="nbMsgs"></div>
+      <div id="nbIn"><input id="nbCampo" type="text" autocomplete="off"><button id="nbSend">Enviar</button></div>
+    </div>
 
-<button id="nbBtn" aria-label="Assistente NextGen">🤖</button>
-<div id="nbBox">
-  <div class="nb-head"><div>🤖 Assistente NextGen<small>● online</small></div><button class="nb-x" id="nbX" aria-label="Fechar">×</button></div>
-  <div id="nbMsgs"></div>
-  <div id="nbIn"><input id="nbCampo" type="text" autocomplete="off"><button id="nbSend">Enviar</button></div>
-</div>
+    <script>
+    (function () {
+      const WHATSAPP = '5551989498171';
+      const PLANOS = [
+        { nome: '30 dias', preco: 'R$ 29,99' },
+        { nome: '90 dias', preco: 'R$ 74,99', tag: '⭐ mais popular' },
+        { nome: '1 ano',   preco: 'R$ 240,00', tag: 'R$ 20/mês' }
+      ];
+      const BENEFICIO_INDICACAO = '';
 
-<script>
-(function () {
-  // ===== CONFIGURAÇÃO (edite aqui) =====
-  const WHATSAPP = '5551989498171';
-  const PLANOS = [
-    { nome: '30 dias', preco: 'R$ 29,99' },
-    { nome: '90 dias', preco: 'R$ 74,99', tag: '⭐ mais popular' },
-    { nome: '1 ano',   preco: 'R$ 240,00', tag: 'R$ 20/mês' }
-  ];
-  const BENEFICIO_INDICACAO = '';   // ex.: 'Quem indica ganha 7 dias grátis!'
-  // =====================================
+      const $ = (id) => document.getElementById(id);
+      const msgs = $('nbMsgs'), box =$('nbBox'), inp = $('nbIn'), campo =$('nbCampo');
+      let nome = '', tel = '', cb = null, validar = null, iniciou = false;
 
-  const $ = (id) => document.getElementById(id);
-  const msgs = $('nbMsgs'), box = $('nbBox'), inp = $('nbIn'), campo = $('nbCampo');
-  let nome = '', tel = '', cb = null, validar = null, iniciou = false;
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const rolar = () => { msgs.scrollTop = msgs.scrollHeight; };
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const rolar = () => { msgs.scrollTop = msgs.scrollHeight; };
+      function lerCliente() {
+        try { 
+          const c = JSON.parse(localStorage.getItem('nextgen_cliente') || 'null'); 
+          if (c) { 
+            nome = c.nome || nome; 
+            tel = c.id || tel; 
+          } 
+        } catch (e) {}
+      }
+      const quem = () => 'Olá! Sou ' + (nome || 'Cliente') + (tel ? ' (' + tel + ')' : '') + '.';
 
-  function lerCliente() {
-    try { const c = JSON.parse(localStorage.getItem('nextgen_cliente') || 'null'); if (c) { nome = c.nome || nome; tel = c.id || tel; } } catch (e) {}
-  }
-  const quem = () => nome ? 'Olá! Sou ' + nome + (tel ? ' (' + tel + ')' : '') + ', cliente.' : 'Olá! Sou cliente.';
+      function bolha(txt, cls) { 
+        const d = document.createElement('div'); 
+        d.className = 'nb-b ' + cls; 
+        d.textContent = txt; 
+        msgs.appendChild(d); 
+        rolar(); 
+      }
+      
+      async function bot(txt) {
+        const t = document.createElement('div'); 
+        t.className = 'nb-typing'; 
+        t.textContent = 'a escrever...'; 
+        msgs.appendChild(t); 
+        rolar();
+        await sleep(450); 
+        t.remove(); 
+        bolha(txt, 'nb-bot');
+      }
+      
+      const user = (txt) => bolha(txt, 'nb-user');
 
-  function bolha(txt, cls) { const d = document.createElement('div'); d.className = 'nb-b ' + cls; d.textContent = txt; msgs.appendChild(d); rolar(); }
-  async function bot(txt) {
-    const t = document.createElement('div'); t.className = 'nb-typing'; t.textContent = 'digitando...'; msgs.appendChild(t); rolar();
-    await sleep(450); t.remove(); bolha(txt, 'nb-bot');
-  }
-  const user = (txt) => bolha(txt, 'nb-user');
+      function removerOpcoes() { const o = $('nbOpts'); if (o) o.remove(); }
+      function opcoes(lista) {
+        removerOpcoes();
+        const w = document.createElement('div'); w.className = 'nb-opts'; w.id = 'nbOpts';
+        lista.forEach((o) => {
+          const b = document.createElement('button'); b.className = 'nb-opt'; b.textContent = o[0];
+          b.onclick = () => { removerOpcoes(); user(o[0]); o[1](); };
+          w.appendChild(b);
+        });
+        msgs.appendChild(w); rolar();
+      }
 
-  function removerOpcoes() { const o = $('nbOpts'); if (o) o.remove(); }
-  function opcoes(lista) {
-    removerOpcoes();
-    const w = document.createElement('div'); w.className = 'nb-opts'; w.id = 'nbOpts';
-    lista.forEach((o) => {
-      const b = document.createElement('button'); b.className = 'nb-opt'; b.textContent = o[0];
-      b.onclick = () => { removerOpcoes(); user(o[0]); o[1](); };
-      w.appendChild(b);
-    });
-    msgs.appendChild(w); rolar();
-  }
+      function pedir(ph, val, fn, tipo) {
+        campo.placeholder = ph; campo.inputMode = tipo === 'tel' ? 'numeric' : 'text';
+        validar = val; cb = fn; campo.value = ''; inp.classList.add('show'); 
+        setTimeout(() => { try { campo.focus(); } catch(e){} }, 100);
+      }
+      
+      function fecharInput() { inp.classList.remove('show'); cb = null; validar = null; try { campo.blur(); } catch(e){} }
+      
+      function enviarCampo() {
+        const v = campo.value.trim(); if (!v || !cb) return;
+        const r = validar ? validar(v) : { ok: true, valor: v };
+        if (!r.ok) { bot(r.msg); return; }
+        removerOpcoes(); user(v);
+        const f = cb; fecharInput(); f(r.valor);
+      }
+      
+      $('nbSend').onclick = enviarCampo;
+      campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') enviarCampo(); });
 
-  function pedir(ph, val, fn, tipo) {
-    campo.placeholder = ph; campo.inputMode = tipo === 'tel' ? 'numeric' : 'text';
-    validar = val; cb = fn; campo.value = ''; inp.classList.add('show'); setTimeout(() => campo.focus(), 60);
-  }
-  function fecharInput() { inp.classList.remove('show'); cb = null; validar = null; campo.blur(); }
-  function enviarCampo() {
-    const v = campo.value.trim(); if (!v || !cb) return;
-    const r = validar ? validar(v) : { ok: true, valor: v };
-    if (!r.ok) { bot(r.msg); return; }
-    removerOpcoes(); user(v);
-    const f = cb; fecharInput(); f(r.valor);
-  }
-  $('nbSend').onclick = enviarCampo;
-  campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') enviarCampo(); });
+      function wa(rotulo, msg) {
+        const a = document.createElement('a'); a.className = 'nb-wa'; a.target = '_blank'; a.rel = 'noopener';
+        a.href = 'https://wa.me/' + WHATSAPP + '?text=' + encodeURIComponent(msg); a.textContent = rotulo;
+        const w = document.createElement('div'); w.appendChild(a); msgs.appendChild(w); rolar();
+      }
 
-  function wa(rotulo, msg) {
-    const a = document.createElement('a'); a.className = 'nb-wa'; a.target = '_blank'; a.rel = 'noopener';
-    a.href = 'https://wa.me/' + WHATSAPP + '?text=' + encodeURIComponent(msg); a.textContent = rotulo;
-    const w = document.createElement('div'); w.appendChild(a); msgs.appendChild(w); rolar();
-  }
+      function garantirNome(fn) {
+        lerCliente(); 
+        if (nome) { fn(); return; }
+        bot('Antes de começar, qual é o seu nome?').then(() =>
+          pedir('Seu nome', (v) => v.length >= 2 ? { ok: true, valor: v } : { ok: false, msg: 'Digite seu nome, por favor.' }, (v) => { nome = v; fn(); }));
+      }
 
-  function garantirNome(fn) {
-    lerCliente(); if (nome) { fn(); return; }
-    bot('Antes de começar, qual é o seu nome?').then(() =>
-      pedir('Seu nome', (v) => v.length >= 2 ? { ok: true, valor: v } : { ok: false, msg: 'Digite seu nome, por favor.' }, (v) => { nome = v; fn(); }));
-  }
+      async function menu(saudar) {
+        if (saudar) { 
+          lerCliente(); 
+          const p = nome ? nome.split(' ')[0] : ''; 
+          await bot('Olá' + (p ? ', ' + p : '') + '! 👋 Sou o assistente virtual da NextGen.TV.\nComo posso ajudar?'); 
+        } else {
+          await bot('Posso ajudar em mais alguma coisa?');
+        }
+        opcoes([
+          ['💬 Falar com suporte', suporte], 
+          ['🎁 Indicar um amigo', indicar], 
+          ['🔄 Renovar meu plano', renovar],
+          ['💰 Planos e preços', planos], 
+          ['📺 Como instalar na TV', instalar], 
+          ['❓ Dúvidas', duvidas]
+        ]);
+      }
+      
+      const voltar = () => menu(false);
+      const botaoVoltar = () => opcoes([['↩ Voltar ao menu', voltar]]);
 
-  // ===== MENU =====
-  async function menu(saudar) {
-    if (saudar) { lerCliente(); const p = nome ? nome.split(' ')[0] : ''; await bot('Oi' + (p ? ', ' + p : '') + '! 👋 Eu sou o assistente da NextGen.TV.\nComo posso ajudar?'); }
-    else await bot('Posso ajudar em mais alguma coisa?');
-    opcoes([
-      ['💬 Falar com suporte', suporte], ['🎁 Indicar um amigo', indicar], ['🔄 Renovar meu plano', renovar],
-      ['💰 Planos e preços', planos], ['📺 Como instalar na TV', instalar], ['❓ Dúvidas', duvidas]
-    ]);
-  }
-  const voltar = () => menu(false);
-  const botaoVoltar = () => opcoes([['↩ Voltar ao menu', voltar]]);
+      async function suporte() {
+        await bot('Qual é o assunto?');
+        opcoes([
+          ['📡 Sem sinal / travando', () => dica('Sem sinal ou travando', '1) Reinicie a TV/aparelho e o roteador (tire da tomada por 30 segundos).\n2) Teste com outra rede, se possível.\n3) Confira o seu utilizador e palavra-passe na secção "Dados de Acesso".')],
+          ['🔑 Problema de acesso', () => dica('Problema de acesso', 'Os seus dados encontram-se no quadro "Dados de Acesso" no topo da sua área de cliente.')],
+          ['💳 Pagamento', () => falar('Pagamento')],
+          ['🙋 Outro assunto', () => falar('Outro assunto')]
+        ]);
+      }
+      
+      async function dica(assunto, texto) {
+        await bot(texto); 
+        await bot('Isto resolveu a situação?');
+        opcoes([['✅ Sim, obrigado!', async () => { await bot('Ainda bem! 🎉'); voltar(); }], ['💬 Ainda preciso de ajuda', () => falar(assunto)]]);
+      }
+      
+      function falar(assunto) {
+        garantirNome(async () => {
+          await bot('Deseja descrever brevemente o que está a acontecer? (opcional)');
+          opcoes([['Pular', () => { fecharInput(); enviarSuporte(assunto, ''); }]]);
+          pedir('Escreva em poucas palavras', (v) => ({ ok: true, valor: v }), (v) => enviarSuporte(assunto, v));
+        });
+      }
+      
+      async function enviarSuporte(assunto, detalhe) {
+        await bot('Perfeito! Toque no botão abaixo para abrir o WhatsApp com a mensagem pronta. 👇');
+        wa('💬 Abrir WhatsApp', quem() + ' Preciso de suporte (' + assunto + ').' + (detalhe ? ' Detalhe: ' + detalhe : ''));
+        botaoVoltar();
+      }
 
-  // ===== SUPORTE =====
-  async function suporte() {
-    await bot('Qual é o assunto?');
-    opcoes([
-      ['📡 Sem sinal / travando', () => dica('Sem sinal ou travando', '1) Reinicie a TV/aparelho e o roteador (tire da tomada por 30 segundos).\n2) Teste com outra rede, como o 4G do celular.\n3) Confira o usuário e a senha no quadro "Seus Dados de Acesso".')],
-      ['🔑 Senha ou acesso', () => dica('Senha ou acesso', 'Seu usuário e senha estão no quadro "Seus Dados de Acesso", aqui na área do cliente. Confira se digitou exatamente igual, sem espaços.')],
-      ['💳 Pagamento', () => falar('Pagamento')],
-      ['🙋 Outro assunto', () => falar('Outro assunto')]
-    ]);
-  }
-  async function dica(assunto, texto) {
-    await bot(texto); await bot('Isso resolveu?');
-    opcoes([['✅ Resolveu, obrigado!', async () => { await bot('Que bom! 🎉'); voltar(); }], ['💬 Ainda preciso de ajuda', () => falar(assunto)]]);
-  }
-  function falar(assunto) {
-    garantirNome(async () => {
-      await bot('Quer contar rapidamente o que está acontecendo? (opcional)');
-      opcoes([['Pular', () => { fecharInput(); enviarSuporte(assunto, ''); }]]);
-      pedir('Descreva em poucas palavras', (v) => ({ ok: true, valor: v }), (v) => enviarSuporte(assunto, v));
-    });
-  }
-  async function enviarSuporte(assunto, detalhe) {
-    await bot('Perfeito! Toque no botão para abrir o WhatsApp com tudo preenchido. É só enviar. 👇');
-    wa('💬 Abrir WhatsApp', quem() + ' Preciso de suporte: ' + assunto + '.' + (detalhe ? ' ' + detalhe : ''));
-    botaoVoltar();
-  }
+      function indicar() {
+        garantirNome(async () => {
+          await bot('Excelente! 🎁 Qual é o nome do seu amigo?');
+          pedir('Nome do amigo', (v) => v.length >= 2 ? { ok: true, valor: v } : { ok: false, msg: 'Digite o nome do amigo.' }, async (n) => {
+            await bot('E qual é o WhatsApp dele? (com indicativo de país/região)');
+            pedir('Ex: 51999999999', (v) => { const d = v.replace(/\D/g, ''); return (d.length >= 10) ? { ok: true, valor: d } : { ok: false, msg: 'Número inválido. Verifique o formato.' }; }, async (z) => {
+              await bot('Tudo pronto!\n👤 ' + n + '\n📱 ' + z + '\n\nToque para enviar via WhatsApp. 👇');
+              wa('💬 Enviar indicação', quem() + ' Quero indicar um amigo.\nNome: ' + n + '\nWhatsApp: ' + z);
+              botaoVoltar();
+            }, 'tel');
+          });
+        });
+      }
 
-  // ===== INDICAÇÃO =====
-  function indicar() {
-    garantirNome(async () => {
-      await bot('Que legal! 🎁 Seu amigo pode testar grátis.' + (BENEFICIO_INDICACAO ? '\n' + BENEFICIO_INDICACAO : '') + '\n\nQual o nome do seu amigo?');
-      pedir('Nome do amigo', (v) => v.length >= 2 ? { ok: true, valor: v } : { ok: false, msg: 'Digite o nome do seu amigo.' }, async (n) => {
-        await bot('E qual o WhatsApp dele? (com DDD)');
-        pedir('Ex: 51999999999', (v) => { const d = v.replace(/\D/g, ''); return (d.length === 10 || d.length === 11) ? { ok: true, valor: d } : { ok: false, msg: 'Confira o número: DDD + número, ex.: 51999999999.' }; }, async (z) => {
-          await bot('Tudo certo!\n👤 ' + n + '\n📱 ' + z + '\n\nToque para me enviar pelo WhatsApp. 👇');
-          wa('💬 Enviar indicação', quem() + ' Quero fazer uma indicação.\nNome do indicado: ' + n + '\nWhatsApp: ' + z);
+      async function renovar() {
+        await bot('Escolha o plano pretendido:');
+        opcoes(PLANOS.map((p) => [p.nome + ' · ' + p.preco + (p.tag ? ' · ' + p.tag : ''), () => garantirNome(async () => {
+          await bot('Ótimo! Plano de ' + p.nome + ' (' + p.preco + ').\nToque para solicitar a renovação. 👇');
+          wa('💬 Pedir renovação', quem() + ' Quero renovar o plano: ' + p.nome + ' (' + p.preco + ').');
           botaoVoltar();
-        }, 'tel');
-      });
-    });
-  }
+        })]));
+      }
+      
+      async function planos() {
+        await bot('Planos disponíveis:\n' + PLANOS.map((p) => '• ' + p.nome + ' — ' + p.preco + (p.tag ? ' (' + p.tag + ')' : '')).join('\n'));
+        opcoes([['🔄 Quero renovar', renovar], ['↩ Voltar ao menu', voltar]]);
+      }
 
-  // ===== RENOVAR / PLANOS =====
-  async function renovar() {
-    await bot('Qual plano você quer?');
-    opcoes(PLANOS.map((p) => [p.nome + ' · ' + p.preco + (p.tag ? ' · ' + p.tag : ''), () => garantirNome(async () => {
-      await bot('Ótimo! Plano de ' + p.nome + ' (' + p.preco + ').\nToque para pedir a renovação. 👇');
-      wa('💬 Pedir renovação', quem() + ' Quero renovar meu plano: ' + p.nome + ' (' + p.preco + ').');
-      botaoVoltar();
-    })]));
-  }
-  async function planos() {
-    await bot('Nossos planos:\n' + PLANOS.map((p) => '• ' + p.nome + ' — ' + p.preco + (p.tag ? ' (' + p.tag + ')' : '')).join('\n'));
-    opcoes([['🔄 Quero renovar', renovar], ['↩ Voltar ao menu', voltar]]);
-  }
+      async function instalar() {
+        await bot('Em que tipo de dispositivo pretende instalar?');
+        opcoes([
+          ['🤖 Android TV / TV Box / Fire Stick', async () => { await bot('1) Instale a aplicação Downloader na loja da TV.\n2) Abra e introduza o código 3542314, depois clique em Ir (Go).\n3) Descarregue e instale a aplicação.\n4) Insira os seus dados de acesso da área do cliente.'); fimInstalar(); }],
+          ['📺 Smart TV Samsung / LG', async () => { await bot('1) Na loja de aplicações, procure por IPTV Smarters.\n2) Escolha "Login with Xtream Codes API".\n3) Preencha com os dados da sua área de cliente e a URL: http://plus.lat'); fimInstalar(); }]
+        ]);
+      }
+      
+      function fimInstalar() { opcoes([['💬 Preciso de ajuda adicional', () => falar('Ajuda na instalação')], ['↩ Voltar ao menu', voltar]]); }
 
-  // ===== INSTALAR =====
-  async function instalar() {
-    await bot('Qual é a sua TV?');
-    opcoes([
-      ['🤖 Android TV, TV Box, Fire Stick', async () => { await bot('1) Instale o app Downloader na loja da TV.\n2) Abra e digite o código 3542314, depois Ir (Go).\n3) Baixe, instale o player e abra.\n4) Entre com o usuário e a senha da área do cliente.'); fimInstalar(); }],
-      ['📺 Smart TV Samsung / LG', async () => { await bot('1) Na loja da TV, procure IPTV Smarters.\n2) Escolha "Login with Xtream Codes API".\n3) Nome: NextGen\n    Usuário e senha: da área do cliente\n    URL: http://plus.lat'); fimInstalar(); }]
-    ]);
-  }
-  function fimInstalar() { opcoes([['💬 Preciso de ajuda', () => falar('Ajuda para instalar')], ['↩ Voltar ao menu', voltar]]); }
+      async function duvidas() {
+        await bot('Selecione a sua dúvida:');
+        opcoes([
+          ['📱 Quais os aparelhos compatíveis?', () => resp('Smart TVs, TV Box, Fire Stick, telemóveis Android/iOS e computadores.')],
+          ['🔓 Existe período de fidelização?', () => resp('Não. Renova apenas quando pretender.')],
+          ['🎁 Como funciona o teste grátis?', async () => { await bot('Envie uma mensagem pelo WhatsApp para solicitar o seu acesso de teste. 👇'); wa('💬 Pedir teste grátis', 'Olá! Gostaria de solicitar um teste grátis.'); fimDuvida(); }],
+          ['🙋 Outra questão', () => falar('Dúvida geral')]
+        ]);
+      }
+      
+      async function resp(t) { await bot(t); fimDuvida(); }
+      
+      function fimDuvida() { opcoes([['❓ Outra dúvida', duvidas], ['↩ Voltar ao menu', voltar]]); }
 
-  // ===== DÚVIDAS =====
-  async function duvidas() {
-    await bot('Qual é a sua dúvida?');
-    opcoes([
-      ['📱 Em quais aparelhos funciona?', () => resp('Funciona em Smart TV, TV Box, Fire Stick, celulares Android e iOS e também no PC/Notebook.')],
-      ['🔓 Tem fidelidade?', () => resp('Não. Você renova só se quiser.')],
-      ['🎁 Como testar grátis?', async () => { await bot('É só chamar a gente no WhatsApp e receber o seu acesso de teste. 👇'); wa('💬 Pedir teste grátis', 'Olá! Quero fazer um teste grátis.'); fimDuvida(); }],
-      ['🙋 Outra dúvida', () => falar('Dúvida')]
-    ]);
-  }
-  async function resp(t) { await bot(t); fimDuvida(); }
-  function fimDuvida() { opcoes([['❓ Outra dúvida', duvidas], ['↩ Voltar ao menu', voltar]]); }
-
-  // ===== ABRIR / FECHAR =====
-  $('nbBtn').onclick = () => {
-    box.classList.toggle('open');
-    if (box.classList.contains('open') && !iniciou) { iniciou = true; menu(true); }
-  };
-  $('nbX').onclick = () => box.classList.remove('open');
-})();
-</script>
-
+      const btnRobo = $('nbBtn');
+      if (btnRobo) {
+        btnRobo.onclick = () => {
+          box.classList.toggle('open');
+          if (box.classList.contains('open') && !iniciou) { 
+            iniciou = true; 
+            menu(true); 
+          }
+        };
+      }
+      
+      const btnX = $('nbX');
+      if (btnX) {
+        btnX.onclick = () => box.classList.remove('open');
+      }
+    })();
+    </script>
 </body>
 </html>
