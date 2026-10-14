@@ -56,7 +56,7 @@
             }
         };
 
-        async function carregarPainelCliente(telefone, dados) {
+        async function carregarPainelCliente(telefone, dados, soDados = false) {
             document.getElementById('telaLoginCliente').classList.add('hidden');
             document.getElementById('painelCliente').classList.remove('hidden');
 
@@ -83,7 +83,10 @@
                 }
             }
 
-            carregarAvisosCliente(telefone);
+            if (soDados) return;
+
+            try { if (window.AndroidApp) window.AndroidApp.setCliente(telefone); } catch (e) {}
+            iniciarMensagens(telefone);
             escutarPromocaoAtiva(telefone, dados);
         }
 
@@ -260,57 +263,131 @@
             }
         };
 
-        async function carregarAvisosCliente(telefone) {
-            const containerAvisos = document.getElementById('containerAvisos');
-            containerAvisos.innerHTML = '<p class="text-xs text-zinc-500 text-center py-2">A carregar avisos...</p>';
+        // ================= MENSAGENS INDIVIDUAIS E AVISOS GERAIS =================
+        let unsubMsgs = null, unsubGeral = null;
+        let msgsAtuais = [];
+        let geralAtual = null;
+        let telefoneMsgs = "";
 
-            let listaAvisosHtml = "";
+        const lidasKey = (tel) => 'msgs_lidas_' + tel;
+        const lerLidas = (tel) => { try { return JSON.parse(localStorage.getItem(lidasKey(tel)) || '[]'); } catch (e) { return []; } };
+        const escM = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+        // diz ao app (Kotlin) até onde o cliente já viu, para não notificar de novo
+        function avisarAppVisto() {
             try {
-                const avisoGeralSnap = await getDoc(doc(db, "configuracoes", "aviso_player"));
-                if (avisoGeralSnap.exists()) {
-                    const geral = avisoGeralSnap.data();
-                    if (geral.ativo && geral.mensagem) {
-                        listaAvisosHtml += `
-                            <div class="bg-blue-600/10 border border-blue-500/30 rounded-xl p-4 space-y-2">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-xs font-bold text-blue-400 uppercase tracking-wider">📢 ${geral.titulo || 'Aviso Geral'}</span>
-                                    <span class="text-[10px] text-zinc-400">Geral</span>
-                                </div>
-                                <p class="text-sm text-zinc-200">${geral.mensagem}</p>
-                                ${geral.imagem ? `<img src="${geral.imagem}" class="mt-2 rounded-lg max-h-32 object-cover border border-zinc-800">` : ''}
-                            </div>
-                        `;
-                    }
-                }
+                if (!window.AndroidApp || document.visibilityState !== 'visible') return;
+                const maxMsg = msgsAtuais.reduce((m, x) => (x.data && x.data > m ? x.data : m), '');
+                window.AndroidApp.visto(maxMsg, (geralAtual && geralAtual.atualizadoEm) || '');
+            } catch (e) {}
+        }
 
-                const subMensagensSnap = await getDocs(collection(db, "clientes", telefone, "mensagens_app"));
-                subMensagensSnap.forEach((docMsg) => {
-                    const msg = docMsg.data();
-                    listaAvisosHtml += `
-                        <div class="bg-emerald-600/10 border border-emerald-500/30 rounded-xl p-4 space-y-2">
-                            <div class="flex justify-between items-center">
-                                <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">💬 ${msg.titulo || 'Mensagem do Suporte'}</span>
-                                <span class="text-[10px] text-zinc-400">Exclusivo para você</span>
-                            </div>
-                            <p class="text-sm text-zinc-200">${msg.mensagem}</p>
+        function renderGeral() {
+            const c = document.getElementById('containerAvisos');
+            const g = geralAtual;
+            if (g && g.ativo && g.mensagem) {
+                const img = (g.imagem && /^(data:image|https?:)/.test(g.imagem)) ? `<img src="${g.imagem}" class="mt-2 rounded-lg max-h-32 object-cover border border-zinc-800">` : '';
+                c.innerHTML = `
+                    <div class="bg-blue-600/10 border border-blue-500/30 rounded-xl p-4 space-y-2">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-bold text-blue-400 uppercase tracking-wider">📢 ${escM(g.titulo || 'Aviso Geral')}</span>
+                            <span class="text-[10px] text-zinc-400">Geral</span>
                         </div>
-                    `;
-                });
-
-                if (listaAvisosHtml === "") {
-                    containerAvisos.innerHTML = '<p class="text-xs text-zinc-500 text-center py-4">Nenhum aviso no momento.</p>';
-                } else {
-                    containerAvisos.innerHTML = listaAvisosHtml;
-                }
-
-            } catch (e) {
-                console.error("Erro ao carregar avisos:", e);
-                containerAvisos.innerHTML = '<p class="text-xs text-red-400 text-center py-2">Erro ao carregar avisos.</p>';
+                        <p class="text-sm text-zinc-200">${escM(g.mensagem)}</p>
+                        ${img}
+                    </div>`;
+            } else {
+                c.innerHTML = '<p class="text-xs text-zinc-500 text-center py-4">Nenhum aviso no momento.</p>';
             }
         }
 
+        function renderMensagens() {
+            const tel = telefoneMsgs;
+            const c = document.getElementById('containerMensagens');
+            const badge = document.getElementById('badgeMensagens');
+            const btn = document.getElementById('btnLerTodas');
+            const lidas = new Set(lerLidas(tel));
+            const lista = [...msgsAtuais].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+            const novas = lista.filter((m) => !lidas.has(m.id)).length;
+
+            badge.textContent = novas > 0 ? novas + (novas > 1 ? ' novas' : ' nova') : '';
+            badge.classList.toggle('hidden', novas === 0);
+            btn.classList.toggle('hidden', novas === 0);
+
+            if (lista.length === 0) {
+                c.innerHTML = '<p class="text-xs text-zinc-500 text-center py-4">Nenhuma mensagem pessoal por enquanto.</p>';
+                return;
+            }
+            c.innerHTML = lista.map((m) => {
+                const nova = !lidas.has(m.id);
+                const quando = m.data ? new Date(m.data).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+                return `
+                    <div class="${nova ? 'bg-emerald-600/15 border-emerald-400/60' : 'bg-emerald-600/5 border-emerald-500/20'} border rounded-xl p-4 space-y-2">
+                        <div class="flex justify-between items-center gap-2">
+                            <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">${nova ? '🔵 ' : ''}${escM(m.titulo || 'Mensagem do Suporte')}</span>
+                            <span class="text-[10px] text-zinc-400 shrink-0">${quando}</span>
+                        </div>
+                        <p class="text-sm text-zinc-200 whitespace-pre-line">${escM(m.mensagem)}</p>
+                    </div>`;
+            }).join('');
+        }
+
+        window.marcarMensagensLidas = () => {
+            const set = new Set(lerLidas(telefoneMsgs));
+            msgsAtuais.forEach((m) => set.add(m.id));
+            try { localStorage.setItem(lidasKey(telefoneMsgs), JSON.stringify([...set])); } catch (e) {}
+            renderMensagens();
+        };
+
+        function iniciarMensagens(telefone) {
+            telefoneMsgs = telefone;
+            if (unsubMsgs) unsubMsgs();
+            if (unsubGeral) unsubGeral();
+
+            unsubMsgs = onSnapshot(collection(db, "clientes", telefone, "mensagens_app"), (snap) => {
+                msgsAtuais = [];
+                snap.forEach((d) => msgsAtuais.push({ id: d.id, ...d.data() }));
+                renderMensagens();
+                avisarAppVisto();
+            }, (e) => {
+                console.error("Erro nas mensagens:", e);
+                document.getElementById('containerMensagens').innerHTML = '<p class="text-xs text-red-400 text-center py-2">Erro ao carregar mensagens.</p>';
+            });
+
+            unsubGeral = onSnapshot(doc(db, "configuracoes", "aviso_player"), (s) => {
+                geralAtual = s.exists() ? s.data() : null;
+                renderGeral();
+                avisarAppVisto();
+            }, (e) => {
+                console.error("Erro no aviso geral:", e);
+                document.getElementById('containerAvisos').innerHTML = '<p class="text-xs text-red-400 text-center py-2">Erro ao carregar avisos.</p>';
+            });
+        }
+
+        // busca dados atualizados do cliente (dias restantes, plano, usuário, senha)
+        async function atualizarDadosCliente() {
+            const salvo = localStorage.getItem('nextgen_cliente');
+            if (!salvo) return;
+            const id = JSON.parse(salvo).id;
+            try {
+                const snap = await getDoc(doc(db, "clientes", id));
+                if (snap.exists()) {
+                    const dados = snap.data();
+                    localStorage.setItem('nextgen_cliente', JSON.stringify({ id, ...dados }));
+                    carregarPainelCliente(id, dados, true);
+                }
+            } catch (e) { console.warn("Sem conexão para atualizar os dados:", e); }
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                avisarAppVisto();
+                atualizarDadosCliente();
+            }
+        });
+
         window.sairCliente = () => {
+            try { if (window.AndroidApp) window.AndroidApp.setCliente(''); } catch (e) {}
             localStorage.removeItem('nextgen_cliente');
             location.reload();
         };
@@ -321,6 +398,7 @@
                 const dadosCliente = JSON.parse(salvo);
                 document.getElementById('telefoneLogin').value = dadosCliente.id;
                 carregarPainelCliente(dadosCliente.id, dadosCliente);
+                atualizarDadosCliente();
             }
         };
     </script>
@@ -400,6 +478,18 @@
                 <span class="flex items-center gap-2">⚽ Consulte os Jogos do Dia <span class="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded font-normal">Externo</span></span>
                 <span class="text-blue-400 text-sm">➔</span>
             </a>
+
+            <!-- MINHAS MENSAGENS (individuais) -->
+            <div class="bg-zinc-950 border border-emerald-500/30 rounded-2xl p-5 shadow-xl space-y-3">
+                <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">💬 Minhas Mensagens</h3>
+                    <span id="badgeMensagens" class="hidden text-[10px] font-bold bg-emerald-500 text-black px-2 py-0.5 rounded-full"></span>
+                </div>
+                <div id="containerMensagens" class="space-y-3">
+                    <p class="text-xs text-zinc-500 text-center py-2">A carregar mensagens...</p>
+                </div>
+                <button id="btnLerTodas" onclick="marcarMensagensLidas()" class="hidden w-full text-[11px] text-zinc-400 hover:text-white border border-zinc-800 rounded-xl py-2 transition">✔ Marcar todas como lidas</button>
+            </div>
 
             <!-- CENTRAL DE AVISOS -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-xl space-y-3">
