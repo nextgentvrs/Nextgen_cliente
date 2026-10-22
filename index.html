@@ -83,6 +83,13 @@
                 }
             }
 
+            // botão de suporte: leva o nome e o usuário do cliente na mensagem
+            const linkSuporte = document.getElementById('btnSuporteWhats');
+            if (linkSuporte) {
+                const msgSuporte = 'Olá, preciso de suporte na NextGen.TV.\nNome: ' + (dados.nome || '-') + '\nUsuário: ' + (dados.usuario || '-');
+                linkSuporte.href = linkSuporte.href.split('?')[0] + '?text=' + encodeURIComponent(msgSuporte);
+            }
+
             if (soDados) return;
 
             try { if (window.AndroidApp) window.AndroidApp.setCliente(telefone); } catch (e) {}
@@ -500,7 +507,7 @@
             </div>
 
             <!-- BOTÃO WHATSAPP SUPORTE -->
-            <a href="https://wa.me/5551989498171?text=Olá,%20preciso%20de%20suporte%20na%20NextGen.TV" target="_blank" 
+            <a id="btnSuporteWhats" href="https://wa.me/5551989498171?text=Olá,%20preciso%20de%20suporte%20na%20NextGen.TV" target="_blank" 
                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2">
                 💬 Falar com Suporte no WhatsApp
             </a>
@@ -574,6 +581,22 @@
 
 
 <!-- ================= ROBOZINHO DE ATENDIMENTO ================= -->
+<script>
+window.__nbErr = [];
+window.addEventListener('error', function (e) { try { window.__nbErr.push((e.message || 'erro') + ' [linha ' + (e.lineno || '?') + ']'); } catch (x) {} });
+window.nbClick = function () {
+  if (window.nbToggle) { window.nbToggle(); return; }
+  var d = document.getElementById('nbErro');
+  if (!d) {
+    d = document.createElement('div'); d.id = 'nbErro';
+    d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:100000;background:#b91c1c;color:#fff;padding:12px 14px;border-radius:12px;font:13px/1.4 sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.5)';
+    d.onclick = function () { d.style.display = 'none'; };
+    document.body.appendChild(d);
+  }
+  d.style.display = 'block';
+  d.textContent = 'O robô não carregou neste aparelho. ' + (window.__nbErr.length ? 'Erro: ' + window.__nbErr.join(' | ') : 'Nenhum erro registrado.') + ' (robô v4) Toque aqui para fechar.';
+};
+</script>
 <style>
 #nbBtn{position:fixed;right:16px;bottom:16px;z-index:60;width:62px;height:62px;border-radius:50%;border:0;background:#00E5FF;color:#04121a;font-size:30px;cursor:pointer;box-shadow:0 8px 30px rgba(0,229,255,.45);animation:nbp 2.2s infinite}
 @keyframes nbp{0%{box-shadow:0 0 0 0 rgba(0,229,255,.55)}70%{box-shadow:0 0 0 18px rgba(0,229,255,0)}100%{box-shadow:0 0 0 0 rgba(0,229,255,0)}}
@@ -597,7 +620,7 @@
 #nbIn button{background:#00E5FF;color:#04121a;border:0;border-radius:12px;padding:0 16px;font-weight:800;cursor:pointer}
 </style>
 
-<button id="nbBtn" aria-label="Assistente NextGen">🤖</button>
+<button id="nbBtn" aria-label="Assistente NextGen" onclick="nbClick()">🤖<span style="position:absolute;right:-4px;top:-6px;background:#FBBF24;color:#000;font-size:10px;font-weight:800;border-radius:999px;padding:2px 6px;line-height:1.2">v4</span></button>
 <div id="nbBox">
   <div class="nb-head"><div>🤖 Assistente NextGen<small>● online</small></div><button class="nb-x" id="nbX" aria-label="Fechar">×</button></div>
   <div id="nbMsgs"></div>
@@ -618,15 +641,15 @@
 
   const $ = (id) => document.getElementById(id);
   const msgs = $('nbMsgs'), box = $('nbBox'), inp = $('nbIn'), campo = $('nbCampo');
-  let nome = '', tel = '', cb = null, validar = null, iniciou = false;
+  let nome = '', tel = '', usuario = '', cb = null, validar = null, iniciou = false;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const rolar = () => { msgs.scrollTop = msgs.scrollHeight; };
 
   function lerCliente() {
-    try { const c = JSON.parse(localStorage.getItem('nextgen_cliente') || 'null'); if (c) { nome = c.nome || nome; tel = c.id || tel; } } catch (e) {}
+    try { const c = JSON.parse(localStorage.getItem('nextgen_cliente') || 'null'); if (c) { nome = c.nome || nome; tel = c.id || tel; usuario = c.usuario || usuario; } } catch (e) {}
   }
-  const quem = () => nome ? 'Olá! Sou ' + nome + (tel ? ' (' + tel + '), cliente' : '') + '.' : 'Olá!';
+  const quem = () => nome ? 'Olá! Sou ' + nome + (tel ? ' (' + tel + '), cliente' : '') + '.' + (usuario ? ' Usuário: ' + usuario + '.' : '') : 'Olá!';
 
   function bolha(txt, cls) { const d = document.createElement('div'); d.className = 'nb-b ' + cls; d.textContent = txt; msgs.appendChild(d); rolar(); }
   async function bot(txt) {
@@ -762,7 +785,7 @@
   async function instalar() {
     await bot('Qual é a sua TV?');
     opcoes([
-      ['🤖 Android TV, TV Box, Fire Stick', async () => { await bot('1) Instale o app Downloader na loja da TV.\n2) Abra e digite o código 3542314, depois Ir (Go).\n3) Baixe, instale o player e abra.\n4) Entre com o usuário e a senha da área do cliente.'); fimInstalar(); }],
+      ['🤖 Android TV, TV Box, Fire Stick', async () => { await bot('1) Instale o app Downloader na loja da TV.\n2) Abra e digite o código 2214174, depois Ir (Go).\n3) Baixe, instale o player e abra.\n4) Entre com o usuário e a senha da área do cliente.'); fimInstalar(); }],
       ['📺 Smart TV Samsung / LG', async () => { await bot('1) Na loja da TV, procure IPTV Smarters.\n2) Escolha "Login with Xtream Codes API".\n3) Nome: NextGen\n    Usuário e senha: da área do cliente\n    URL: http://plus.lat'); fimInstalar(); }]
     ]);
   }
@@ -783,7 +806,7 @@
 
   // ===== ABRIR / FECHAR =====
   function avisarApp(aberto) { try { if (window.AndroidApp && window.AndroidApp.chatAberto) window.AndroidApp.chatAberto(aberto); } catch (e) {} }
-  $('nbBtn').onclick = () => {
+  window.nbToggle = () => {
     box.classList.toggle('open');
     const aberto = box.classList.contains('open');
     avisarApp(aberto);
