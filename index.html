@@ -431,6 +431,7 @@
                     Entrar na Minha Conta
                 </button>
                 <p id="erroLogin" class="text-xs text-red-400 text-center min-h-[1rem]"></p>
+                <button class="nb-entry" onclick="nbClick(this)">🤖 Fale com o assistente<small>v5</small></button>
             </div>
         </div>
 
@@ -448,6 +449,9 @@
                     <button onclick="sairCliente()" class="text-[11px] text-zinc-500 hover:text-red-400 transition">Sair</button>
                 </div>
             </div>
+
+            <!-- ASSISTENTE -->
+            <button class="nb-entry" onclick="nbClick(this)">🤖 Assistente: suporte, indicação e teste grátis<small>v5</small></button>
 
             <!-- CARD DINÂMICO DE PROMOÇÃO / FUTUROS EVENTOS -->
             <div id="containerPromocao">
@@ -584,23 +588,23 @@
 <script>
 window.__nbErr = [];
 window.addEventListener('error', function (e) { try { window.__nbErr.push((e.message || 'erro') + ' [linha ' + (e.lineno || '?') + ']'); } catch (x) {} });
-window.nbClick = function () {
-  if (window.nbToggle) { window.nbToggle(); return; }
+window.nbClick = function (btn) {
+  if (window.nbToggle) { window.nbToggle(btn); return; }
   var d = document.getElementById('nbErro');
   if (!d) {
     d = document.createElement('div'); d.id = 'nbErro';
-    d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:100000;background:#b91c1c;color:#fff;padding:12px 14px;border-radius:12px;font:13px/1.4 sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.5)';
+    d.style.cssText = 'margin-top:12px;background:#b91c1c;color:#fff;padding:12px 14px;border-radius:12px;font:13px/1.4 sans-serif';
     d.onclick = function () { d.style.display = 'none'; };
-    document.body.appendChild(d);
   }
+  if (btn && btn.parentNode) btn.parentNode.insertBefore(d, btn.nextSibling); else document.body.appendChild(d);
   d.style.display = 'block';
-  d.textContent = 'O robô não carregou neste aparelho. ' + (window.__nbErr.length ? 'Erro: ' + window.__nbErr.join(' | ') : 'Nenhum erro registrado.') + ' (robô v4) Toque aqui para fechar.';
+  d.textContent = 'O robô não carregou neste aparelho. ' + (window.__nbErr.length ? 'Erro: ' + window.__nbErr.join(' | ') : 'Nenhum erro registrado.') + ' (robô v5) Toque aqui para fechar.';
 };
 </script>
 <style>
-#nbBtn{position:fixed;right:16px;bottom:16px;z-index:60;width:62px;height:62px;border-radius:50%;border:0;background:#00E5FF;color:#04121a;font-size:30px;cursor:pointer;box-shadow:0 8px 30px rgba(0,229,255,.45);animation:nbp 2.2s infinite}
-@keyframes nbp{0%{box-shadow:0 0 0 0 rgba(0,229,255,.55)}70%{box-shadow:0 0 0 18px rgba(0,229,255,0)}100%{box-shadow:0 0 0 0 rgba(0,229,255,0)}}
-#nbBox{position:fixed;right:12px;bottom:90px;z-index:61;width:94vw;max-width:380px;height:72vh;max-height:560px;background:#0b1220;border:1px solid #1c2740;border-radius:20px;display:none;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6);font-family:system-ui,-apple-system,Roboto,sans-serif}
+#nbBox{display:none;width:100%;height:70vh;max-height:560px;margin-top:12px;background:#0b1220;border:1px solid #1c2740;border-radius:20px;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.5);font-family:system-ui,-apple-system,Roboto,sans-serif}
+.nb-entry{display:block;width:100%;border:0;border-radius:16px;padding:14px 16px;background:linear-gradient(90deg,#00E5FF,#3b82f6);color:#04121a;font-size:14px;font-weight:800;text-align:center;cursor:pointer;font-family:system-ui,-apple-system,Roboto,sans-serif}
+.nb-entry small{font-weight:600;opacity:.65;font-size:10px;margin-left:6px}
 #nbBox.open{display:flex}
 .nb-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0d1a30;border-bottom:1px solid #1c2740;color:#e8eefc;font-weight:700;font-size:15px}
 .nb-head small{display:block;font-weight:400;font-size:11px;color:#22c55e}
@@ -620,7 +624,6 @@ window.nbClick = function () {
 #nbIn button{background:#00E5FF;color:#04121a;border:0;border-radius:12px;padding:0 16px;font-weight:800;cursor:pointer}
 </style>
 
-<button id="nbBtn" aria-label="Assistente NextGen" onclick="nbClick()">🤖<span style="position:absolute;right:-4px;top:-6px;background:#FBBF24;color:#000;font-size:10px;font-weight:800;border-radius:999px;padding:2px 6px;line-height:1.2">v4</span></button>
 <div id="nbBox">
   <div class="nb-head"><div>🤖 Assistente NextGen<small>● online</small></div><button class="nb-x" id="nbX" aria-label="Fechar">×</button></div>
   <div id="nbMsgs"></div>
@@ -806,11 +809,13 @@ window.nbClick = function () {
 
   // ===== ABRIR / FECHAR =====
   function avisarApp(aberto) { try { if (window.AndroidApp && window.AndroidApp.chatAberto) window.AndroidApp.chatAberto(aberto); } catch (e) {} }
-  window.nbToggle = () => {
-    box.classList.toggle('open');
-    const aberto = box.classList.contains('open');
-    avisarApp(aberto);
-    if (aberto && !iniciou) { iniciou = true; menu(true); }
+  window.nbToggle = (btn) => {
+    const mesmoLugar = btn && box.previousElementSibling === btn;
+    if (box.classList.contains('open') && (!btn || mesmoLugar)) { box.classList.remove('open'); avisarApp(false); return; }
+    if (btn && btn.parentNode) btn.parentNode.insertBefore(box, btn.nextSibling);
+    box.classList.add('open'); avisarApp(true);
+    if (!iniciou) { iniciou = true; menu(true); }
+    setTimeout(() => { try { box.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { box.scrollIntoView(); } }, 80);
   };
   $('nbX').onclick = () => { box.classList.remove('open'); avisarApp(false); };
 })();
