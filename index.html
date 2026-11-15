@@ -6,6 +6,13 @@
     <title>NextGen.TV - Área do Cliente</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- Configurações do PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="NextGen.TV">
+
     <!-- SDKs do Firebase (Modular v10) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -83,7 +90,6 @@
                 }
             }
 
-            // botão de suporte: leva o nome e o usuário do cliente na mensagem
             const linkSuporte = document.getElementById('btnSuporteWhats');
             if (linkSuporte) {
                 const msgSuporte = 'Olá, preciso de suporte na NextGen.TV.\nNome: ' + (dados.nome || '-') + '\nUsuário: ' + (dados.usuario || '-');
@@ -180,7 +186,6 @@
 
                     if (!melhor) { promoAtual = null; minhaPromo = null; desenharPromo(); return; }
 
-                    // avisa o app (Kotlin) que o cliente já viu esta promoção -> evita notificação repetida
                     try { if (window.AndroidApp) window.AndroidApp.promoVista(melhor.id); } catch (e) {}
 
                     let minha = lerPart(melhor.id);
@@ -235,7 +240,6 @@
                 let final = null;
                 let jaExistia = false;
                 for (let i = 0; i < 30 && !final; i++) {
-                    // número aleatório de 5 dígitos; o marcador garante que não repete
                     const numero = 10000 + Math.floor(Math.random() * 90000);
                     const numRef = doc(db, "promocoes", p.id, "numeros", String(numero));
                     const res = await runTransaction(db, async (tx) => {
@@ -284,7 +288,6 @@
         let confirmandoLimpar = false;
         const escM = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-        // diz ao app (Kotlin) até onde o cliente já viu, para não notificar de novo
         function avisarAppVisto() {
             try {
                 if (!window.AndroidApp || document.visibilityState !== 'visible') return;
@@ -404,7 +407,6 @@
             });
         }
 
-        // busca dados atualizados do cliente (dias restantes, plano, usuário, senha)
         async function atualizarDadosCliente() {
             const salvo = localStorage.getItem('nextgen_cliente');
             if (!salvo) return;
@@ -432,6 +434,31 @@
             location.reload();
         };
 
+        // ================= LÓGICA DE INSTALAÇÃO DO PWA =================
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const btnInstalar = document.getElementById('btnInstalarApp');
+            if (btnInstalar) {
+                btnInstalar.classList.remove('hidden');
+            }
+        });
+
+        window.instalarPWA = async () => {
+            if (!deferredPrompt) {
+                alert("Para instalar o aplicativo, acesse o menu do seu navegador (três pontinhos ou compartilhar) e selecione 'Adicionar à Tela Inicial'.");
+                return;
+            }
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                console.log('Usuário aceitou instalar o PWA');
+            }
+            deferredPrompt = null;
+            document.getElementById('btnInstalarApp').classList.add('hidden');
+        };
+
         window.onload = () => {
             const salvo = localStorage.getItem('nextgen_cliente');
             if (salvo) {
@@ -439,6 +466,12 @@
                 document.getElementById('telefoneLogin').value = dadosCliente.id;
                 carregarPainelCliente(dadosCliente.id, dadosCliente);
                 atualizarDadosCliente();
+            }
+            
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js')
+                .then(() => console.log("Service Worker registrado com sucesso!"))
+                .catch((err) => console.log("Erro ao registrar Service Worker:", err));
             }
         };
     </script>
@@ -451,7 +484,7 @@
         <div id="telaLoginCliente" class="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-6 mt-12">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-black text-blue-500 tracking-wide">NEXTGEN<span class="text-white">.TV</span></h1>
-                <p class="text-xs text-zinc-400">acesse toda tecnologia da NextGen.TV na palma de sua mão, baixe agoramente seu app cliente</p>
+                <p class="text-xs text-zinc-400">acesse toda tecnologia da NextGen.TV na palma de sua mão</p>
             </div>
 
             <div class="space-y-4">
@@ -471,6 +504,11 @@
         <!-- PAINEL PRINCIPAL DO CLIENTE -->
         <div id="painelCliente" class="hidden space-y-5">
             
+            <!-- Botão de Instalação do App PWA -->
+            <button id="btnInstalarApp" onclick="instalarPWA()" class="hidden w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 border border-emerald-400/40 animate-bounce">
+                📲 Instale nosso app agora
+            </button>
+
             <!-- Cabeçalho -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 flex justify-between items-center shadow-xl">
                 <div>
@@ -488,14 +526,8 @@
 
             <!-- CARD DINÂMICO DE PROMOÇÃO / FUTUROS EVENTOS -->
             <div id="containerPromocao">
-                <!-- Injetado em tempo real via JS (Plaquinha "Futuros Eventos" ou "Banner da Promoção") -->
+                <!-- Injetado em tempo real via JS -->
             </div>
-
-            <!-- BOTÃO DOWNLOAD APP EXCLUSIVO -->
-            <a href="https://drive.google.com/file/d/1rODDN7dHDnb65KCPK4Gynk4sRHLuVK5V/view?usp=drive_link" target="_blank" 
-               class="w-full bg-blue-600 hover:bg-blue-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 border border-blue-400/40 animate-pulse">
-                📱 Baixar APP do Cliente
-            </a>
 
             <!-- CREDENCIAIS DE ACESSO -->
             <div class="bg-zinc-950 border border-blue-600/30 rounded-2xl p-5 shadow-xl space-y-3">
@@ -569,13 +601,8 @@
                 <div class="space-y-2 text-xs text-zinc-300">
                     <p class="font-bold text-blue-400">📺 Smart TVs Samsung e LG:</p>
                     <ol class="list-decimal pl-4 space-y-1 text-zinc-400">
-                        <li>Abra a loja da TV e procure por <strong class="text-white">IPTV Smarters</strong> (ou Smarters Player Lite).</li>
-                        <li>Abra o app e escolha <strong class="text-white">Login with Xtream Codes API</strong>.</li>
-                        <li>Preencha:
-                            <br>• Nome: <span class="text-white">NextGen</span>
-                            <br>• Usuário e Senha acima
-                            <br>• URL: <span class="text-blue-400">http://plus.lat</span>
-                        </li>
+                        <li>Abra a loja de aplicativos da sua TV e instale o aplicativo <strong class="text-white">Absoluto Player</strong>.</li>
+                        <li>Abra o aplicativo e utilize as credenciais fornecidas na área do cliente.</li>
                     </ol>
                 </div>
             </div>
@@ -666,15 +693,13 @@ window.nbClick = function (btn) {
 
 <script>
 (function () {
-  // ===== CONFIGURAÇÃO (edite aqui) =====
   const WHATSAPP = '5551982218563';
   const PLANOS = [
     { nome: '30 dias', preco: 'R$ 29,99' },
     { nome: '90 dias', preco: 'R$ 74,99', tag: '⭐ mais popular' },
     { nome: '1 ano',   preco: 'R$ 240,00', tag: 'R$ 20/mês' }
   ];
-  const BENEFICIO_INDICACAO = '';   // ex.: 'Quem indica ganha 7 dias grátis!'
-  // =====================================
+  const BENEFICIO_INDICACAO = 'Quem indica ganha vantagens no plano!';
 
   const $ = (id) => document.getElementById(id);
   const msgs = $('nbMsgs'), box = $('nbBox'), inp = $('nbIn'), campo = $('nbCampo');
@@ -734,7 +759,6 @@ window.nbClick = function (btn) {
       pedir('Seu nome', (v) => v.length >= 2 ? { ok: true, valor: v } : { ok: false, msg: 'Digite seu nome, por favor.' }, (v) => { nome = v; fn(); }));
   }
 
-  // ===== MENU =====
   async function menu(saudar) {
     if (saudar) { lerCliente(); const p = nome ? nome.split(' ')[0] : ''; await bot('Oi' + (p ? ', ' + p : '') + '! 👋 Eu sou o assistente da NextGen.TV.\nComo posso ajudar?'); }
     else await bot('Posso ajudar em mais alguma coisa?');
@@ -746,7 +770,6 @@ window.nbClick = function (btn) {
   const voltar = () => menu(false);
   const botaoVoltar = () => opcoes([['↩ Voltar ao menu', voltar]]);
 
-  // ===== TESTE GRÁTIS (12 horas) =====
   async function testeGratis() {
     await bot('O teste grátis dura 12 horas. 🎁\nVocê prefere com ou sem canais adultos?');
     opcoes([
@@ -762,7 +785,6 @@ window.nbClick = function (btn) {
     });
   }
 
-  // ===== SUPORTE =====
   async function suporte() {
     await bot('Qual é o assunto?');
     opcoes([
@@ -789,22 +811,22 @@ window.nbClick = function (btn) {
     botaoVoltar();
   }
 
-  // ===== INDICAÇÃO =====
+  // ===== INDICAÇÃO DE AMIGO (ATUALIZADA) =====
   function indicar() {
     garantirNome(async () => {
-      await bot('Que legal! 🎁 Seu amigo pode testar grátis por 12 horas.' + (BENEFICIO_INDICACAO ? '\n' + BENEFICIO_INDICACAO : '') + '\n\nQual o nome do seu amigo?');
-      pedir('Nome do amigo', (v) => v.length >= 2 ? { ok: true, valor: v } : { ok: false, msg: 'Digite o nome do seu amigo.' }, async (n) => {
-        await bot('E qual o WhatsApp dele? (com DDD)');
-        pedir('Ex: 51999999999', (v) => { const d = v.replace(/\D/g, ''); return (d.length === 10 || d.length === 11) ? { ok: true, valor: d } : { ok: false, msg: 'Confira o número: DDD + número, ex.: 51999999999.' }; }, async (z) => {
-          await bot('Tudo certo!\n👤 ' + n + '\n📱 ' + z + '\n\nToque para me enviar pelo WhatsApp. 👇');
-          wa('💬 Enviar indicação', quem() + ' Quero fazer uma indicação.\nNome do indicado: ' + n + '\nWhatsApp: ' + z);
+      const codigoAleatorio = Math.floor(1000 + Math.random() * 9000);
+      await bot('Que legal! 🎁 Indique um amigo para o teste grátis.\n\nQual é o nome do seu amigo?');
+      pedir('Nome do amigo', (v) => v.length >= 2 ? { ok: true, valor: v } : { ok: false, msg: 'Digite o nome do seu amigo.' }, async (nomeAmigo) => {
+        await bot('E qual o WhatsApp do ' + nomeAmigo + '? (com DDD)');
+        pedir('Ex: 51999999999', (v) => { const d = v.replace(/\D/g, ''); return (d.length === 10 || d.length === 11) ? { ok: true, valor: d } : { ok: false, msg: 'Confira o número: DDD + número, ex.: 51999999999.' }; }, async (zapAmigo) => {
+          await bot('Tudo pronto! Geramos seu código de indicação único: 🔑 #' + codigoAleatorio + '\n\nToque no botão abaixo para me enviar os dados da indicação pelo WhatsApp. 👇');
+          wa('💬 Enviar Indicação para mim', quem() + ' Quero indicar um amigo para o teste grátis!\n👤 Nome do amigo: ' + nomeAmigo + '\n📱 WhatsApp do amigo: ' + zapAmigo + '\n🔑 Meu Código de Indicação: #' + codigoAleatorio);
           botaoVoltar();
         }, 'tel');
       });
     });
   }
 
-  // ===== RENOVAR / PLANOS =====
   async function renovar() {
     await bot('Qual plano você quer?');
     opcoes(PLANOS.map((p) => [p.nome + ' · ' + p.preco + (p.tag ? ' · ' + p.tag : ''), () => garantirNome(async () => {
@@ -818,17 +840,15 @@ window.nbClick = function (btn) {
     opcoes([['🔄 Quero renovar', renovar], ['↩ Voltar ao menu', voltar]]);
   }
 
-  // ===== INSTALAR =====
   async function instalar() {
     await bot('Qual é a sua TV?');
     opcoes([
       ['🤖 Android TV, TV Box, Fire Stick', async () => { await bot('1) Instale o app Downloader na loja da TV.\n2) Abra e digite o código 2214174, depois Ir (Go).\n3) Baixe, instale o player e abra.\n4) Entre com o usuário e a senha da área do cliente.'); fimInstalar(); }],
-      ['📺 Smart TV Samsung / LG', async () => { await bot('1) Na loja da TV, procure IPTV Smarters.\n2) Escolha "Login with Xtream Codes API".\n3) Nome: NextGen\n    Usuário e senha: da área do cliente\n    URL: http://plus.lat'); fimInstalar(); }]
+      ['📺 Smart TV Samsung / LG', async () => { await bot('1) Abra a loja de apps da sua TV e procure por Absoluto Player.\n2) Abra o aplicativo e utilize as credenciais de Usuário, Senha e URL fornecidas na sua área do cliente.'); fimInstalar(); }]
     ]);
   }
   function fimInstalar() { opcoes([['💬 Preciso de ajuda', () => falar('Ajuda para instalar')], ['↩ Voltar ao menu', voltar]]); }
 
-  // ===== DÚVIDAS =====
   async function duvidas() {
     await bot('Qual é a sua dúvida?');
     opcoes([
@@ -841,7 +861,6 @@ window.nbClick = function (btn) {
   async function resp(t) { await bot(t); fimDuvida(); }
   function fimDuvida() { opcoes([['❓ Outra dúvida', duvidas], ['↩ Voltar ao menu', voltar]]); }
 
-  // ===== ABRIR / FECHAR =====
   function avisarApp(aberto) { try { if (window.AndroidApp && window.AndroidApp.chatAberto) window.AndroidApp.chatAberto(aberto); } catch (e) {} }
   window.nbToggle = (btn) => {
     const mesmoLugar = btn && box.previousElementSibling === btn;
