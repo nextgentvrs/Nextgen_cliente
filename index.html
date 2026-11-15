@@ -434,29 +434,24 @@
             location.reload();
         };
 
-        // ================= LÓGICA DE INSTALAÇÃO DO PWA =================
+        // ================= LÓGICA DO BOTÃO DE INSTALAÇÃO FIXO =================
         let deferredPrompt;
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
-            const btnInstalar = document.getElementById('btnInstalarApp');
-            if (btnInstalar) {
-                btnInstalar.classList.remove('hidden');
-            }
         });
 
         window.instalarPWA = async () => {
-            if (!deferredPrompt) {
-                alert("Para instalar o aplicativo, acesse o menu do seu navegador (três pontinhos ou compartilhar) e selecione 'Adicionar à Tela Inicial'.");
-                return;
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    console.log('Usuário instalou o PWA');
+                }
+                deferredPrompt = null;
+            } else {
+                alert("Para instalar o aplicativo no seu celular, abra o menu do seu navegador (os três pontinhos no canto superior direito) e selecione 'Adicionar à Tela Inicial' ou 'Instalar Aplicativo'.");
             }
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            if (outcome === 'accepted') {
-                console.log('Usuário aceitou instalar o PWA');
-            }
-            deferredPrompt = null;
-            document.getElementById('btnInstalarApp').classList.add('hidden');
         };
 
         window.onload = () => {
@@ -504,8 +499,8 @@
         <!-- PAINEL PRINCIPAL DO CLIENTE -->
         <div id="painelCliente" class="hidden space-y-5">
             
-            <!-- Botão de Instalação do App PWA -->
-            <button id="btnInstalarApp" onclick="instalarPWA()" class="hidden w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 border border-emerald-400/40 animate-bounce">
+            <!-- BOTÃO VISÍVEL PARA INSTALAR O APP -->
+            <button onclick="instalarPWA()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 border border-emerald-400/40 animate-pulse">
                 📲 Instale nosso app agora
             </button>
 
@@ -811,7 +806,7 @@ window.nbClick = function (btn) {
     botaoVoltar();
   }
 
-  // ===== INDICAÇÃO DE AMIGO (ATUALIZADA) =====
+  // ===== INDICAÇÃO DE AMIGO (COM MENSAGEM PARA VOCÊ E CÓDIGO ALEATÓRIO) =====
   function indicar() {
     garantirNome(async () => {
       const codigoAleatorio = Math.floor(1000 + Math.random() * 9000);
@@ -820,7 +815,7 @@ window.nbClick = function (btn) {
         await bot('E qual o WhatsApp do ' + nomeAmigo + '? (com DDD)');
         pedir('Ex: 51999999999', (v) => { const d = v.replace(/\D/g, ''); return (d.length === 10 || d.length === 11) ? { ok: true, valor: d } : { ok: false, msg: 'Confira o número: DDD + número, ex.: 51999999999.' }; }, async (zapAmigo) => {
           await bot('Tudo pronto! Geramos seu código de indicação único: 🔑 #' + codigoAleatorio + '\n\nToque no botão abaixo para me enviar os dados da indicação pelo WhatsApp. 👇');
-          wa('💬 Enviar Indicação para mim', quem() + ' Quero indicar um amigo para o teste grátis!\n👤 Nome do amigo: ' + nomeAmigo + '\n📱 WhatsApp do amigo: ' + zapAmigo + '\n🔑 Meu Código de Indicação: #' + codigoAleatorio);
+          wa('💬 Enviar Indicação para o suporte', quem() + ' Quero indicar um amigo para o teste grátis!\n👤 Nome do amigo: ' + nomeAmigo + '\n📱 WhatsApp do amigo: ' + zapAmigo + '\n🔑 Meu Código de Indicação: #' + codigoAleatorio);
           botaoVoltar();
         }, 'tel');
       });
@@ -844,7 +839,7 @@ window.nbClick = function (btn) {
     await bot('Qual é a sua TV?');
     opcoes([
       ['🤖 Android TV, TV Box, Fire Stick', async () => { await bot('1) Instale o app Downloader na loja da TV.\n2) Abra e digite o código 2214174, depois Ir (Go).\n3) Baixe, instale o player e abra.\n4) Entre com o usuário e a senha da área do cliente.'); fimInstalar(); }],
-      ['📺 Smart TV Samsung / LG', async () => { await bot('1) Abra a loja de apps da sua TV e procure por Absoluto Player.\n2) Abra o aplicativo e utilize as credenciais de Usuário, Senha e URL fornecidas na sua área do cliente.'); fimInstalar(); }]
+      ['📺 Smart TV Samsung / LG', async () => { await bot('1) Na loja de apps da sua TV, procure por Absoluto Player.\n2) Abra o aplicativo e utilize as credenciais de Usuário, Senha e URL fornecidas na sua área do cliente.'); fimInstalar(); }]
     ]);
   }
   function fimInstalar() { opcoes([['💬 Preciso de ajuda', () => falar('Ajuda para instalar')], ['↩ Voltar ao menu', voltar]]); }
