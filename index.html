@@ -6,12 +6,15 @@
     <title>NextGen.TV - Área do Cliente</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Configurações do PWA -->
+    <!-- PWA: app instalável -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#000000">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="NextGen.TV">
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
     <!-- SDKs do Firebase (Modular v10) -->
     <script type="module">
@@ -434,26 +437,6 @@
             location.reload();
         };
 
-        // ================= LÓGICA DO BOTÃO DE INSTALAÇÃO FIXO =================
-        let deferredPrompt;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            deferredPrompt = e;
-        });
-
-        window.instalarPWA = async () => {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    console.log('Usuário instalou o PWA');
-                }
-                deferredPrompt = null;
-            } else {
-                alert("Para instalar o aplicativo no seu celular, abra o menu do seu navegador (os três pontinhos no canto superior direito) e selecione 'Adicionar à Tela Inicial' ou 'Instalar Aplicativo'.");
-            }
-        };
-
         window.onload = () => {
             const salvo = localStorage.getItem('nextgen_cliente');
             if (salvo) {
@@ -462,18 +445,22 @@
                 carregarPainelCliente(dadosCliente.id, dadosCliente);
                 atualizarDadosCliente();
             }
-            
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('sw.js')
-                .then(() => console.log("Service Worker registrado com sucesso!"))
-                .catch((err) => console.log("Erro ao registrar Service Worker:", err));
-            }
         };
     </script>
 </head>
 <body class="bg-black text-white min-h-screen p-4 md:p-8 flex justify-center">
 
     <div class="w-full max-w-md space-y-6">
+
+        <div id="pwaBanner" style="display:none;background:linear-gradient(90deg,#059669,#0d9488);border-radius:16px;padding:12px 14px;color:#fff;font-family:system-ui,-apple-system,Roboto,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.45)">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="font-weight:800;font-size:14px">📲 Instale o app no seu celular</div>
+            <button id="pwaFechar" aria-label="Fechar" style="background:none;border:0;color:#fff;font-size:24px;line-height:1;cursor:pointer;padding:0 4px">×</button>
+        </div>
+        <button id="pwaBtn" style="margin-top:10px;width:100%;border:0;border-radius:12px;padding:12px;background:#fff;color:#065f46;font-weight:800;font-size:14px;cursor:pointer">Instalar app</button>
+        <p id="pwaDica" style="display:none;margin:10px 0 0;font-size:12px;line-height:1.45"></p>
+    </div>
+
 
         <!-- TELA DE LOGIN DO CLIENTE -->
         <div id="telaLoginCliente" class="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-6 mt-12">
@@ -499,11 +486,6 @@
         <!-- PAINEL PRINCIPAL DO CLIENTE -->
         <div id="painelCliente" class="hidden space-y-5">
             
-            <!-- BOTÃO VISÍVEL PARA INSTALAR O APP -->
-            <button onclick="instalarPWA()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 border border-emerald-400/40 animate-pulse">
-                📲 Instale nosso app agora
-            </button>
-
             <!-- Cabeçalho -->
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 flex justify-between items-center shadow-xl">
                 <div>
@@ -513,6 +495,25 @@
                 <div class="flex flex-col items-end gap-2">
                     <span id="statusVencimentoExibicao" class="text-xs px-3 py-1 rounded-full font-bold bg-zinc-800 text-zinc-300">...</span>
                     <button onclick="sairCliente()" class="text-[11px] text-zinc-500 hover:text-red-400 transition">Sair</button>
+                </div>
+            </div>
+
+            <!-- RENOVAR PLANO (PIX) -->
+            <div id="ngRenovar" class="bg-zinc-950 border border-emerald-500/30 rounded-2xl p-5 shadow-xl space-y-3">
+                <button id="ngRenovarBtn" onclick="ngAbrirRenovar()" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm shadow-lg transition">
+                    🔄 Renovar plano
+                </button>
+                <div id="ngRenovarCorpo" class="hidden space-y-3">
+                    <p class="text-xs text-zinc-400">Escolha o plano e pague pelo PIX:</p>
+                    <div id="ngPlanos" class="space-y-2"></div>
+                    <div id="ngPix" class="hidden space-y-3 bg-black border border-zinc-800 rounded-xl p-4">
+                        <p id="ngPixTitulo" class="text-sm font-bold text-emerald-400"></p>
+                        <textarea id="ngPixCodigo" readonly rows="4" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-[11px] text-zinc-300 font-mono break-all"></textarea>
+                        <button id="ngPixCopiar" onclick="ngCopiarPix()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-xs transition">📋 Copiar código PIX</button>
+                        <p class="text-[11px] text-zinc-400 leading-relaxed">No app do seu banco, escolha <b>Pix → Pix Copia e Cola</b>, cole o código e confira o valor e o recebedor (<b>CRISTIAN A BESMINOFF</b>) antes de pagar.</p>
+                        <a id="ngPixZap" href="#" target="_blank" rel="noopener" class="block w-full text-center bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl text-xs transition">💬 Já paguei — enviar comprovante</a>
+                        <p class="text-[10px] text-zinc-500">Depois de pagar, envie o comprovante para liberarmos a renovação.</p>
+                    </div>
                 </div>
             </div>
 
@@ -640,6 +641,113 @@
     </div>
 
 
+<!-- ================= PWA + RENOVAR PLANO (PIX) ================= -->
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+
+  // ===== PLANOS E PIX (copia e cola) =====
+  var NG_WHATS = '5551982218563';   // WhatsApp que recebe o comprovante
+  var NG_PLANOS = [
+    { id: '30', nome: '30 dias', preco: 'R$ 22,90', tag: '', pix: '00020101021126360014br.gov.bcb.pix0114+5551989498171520400005303986540522.905802BR5920CRISTIAN A BESMINOFF6006CANOAS62070503***6304B99F' },
+    { id: '90', nome: '3 meses', preco: 'R$ 59,90', tag: '⭐ mais popular', pix: '00020101021126360014br.gov.bcb.pix0114+5551989498171520400005303986540559.905802BR5920CRISTIAN A BESMINOFF6006CANOAS62070503***63042C87' },
+    { id: '365', nome: '1 ano', preco: 'R$ 180,00', tag: 'R$ 15/mês', pix: '00020101021126360014br.gov.bcb.pix0114+55519894981715204000053039865406180.005802BR5920CRISTIAN A BESMINOFF6006CANOAS62070503***6304EADE' }
+  ];
+  window.NG_PLANOS = NG_PLANOS;
+
+  window.ngCopiar = function (texto) {
+    function fallback() {
+      try {
+        var t = document.createElement('textarea'); t.value = texto; t.setAttribute('readonly', '');
+        t.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(t);
+        t.select(); t.setSelectionRange(0, t.value.length);
+        var ok = document.execCommand('copy'); document.body.removeChild(t); return ok;
+      } catch (e) { return false; }
+    }
+    return new Promise(function (res) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(texto).then(function () { res(true); }, function () { res(fallback()); });
+          return;
+        }
+      } catch (e) {}
+      res(fallback());
+    });
+  };
+
+  var ngPlanoAtual = null;
+  function ngCliente() { try { return JSON.parse(localStorage.getItem('nextgen_cliente') || 'null') || {}; } catch (e) { return {}; } }
+
+  window.ngAbrirRenovar = function () {
+    var corpo = $('ngRenovarCorpo');
+    var abrir = corpo.classList.contains('hidden');
+    corpo.classList.toggle('hidden', !abrir);
+    if (abrir && !$('ngPlanos').children.length) {
+      $('ngPlanos').innerHTML = NG_PLANOS.map(function (p) {
+        return '<button onclick="ngEscolherPlano(\'' + p.id + '\')" class="w-full flex justify-between items-center bg-black border border-zinc-800 hover:border-emerald-500 rounded-xl p-4 text-left transition">' +
+          '<span class="text-sm font-bold text-white">' + p.nome + (p.tag ? ' <span class="text-[10px] text-emerald-400 font-semibold">· ' + p.tag + '</span>' : '') + '</span>' +
+          '<span class="text-emerald-400 font-extrabold text-sm">' + p.preco + '</span></button>';
+      }).join('');
+    }
+  };
+
+  window.ngEscolherPlano = function (id) {
+    var p = NG_PLANOS.filter(function (x) { return x.id === id; })[0]; if (!p) return;
+    ngPlanoAtual = p;
+    var c = ngCliente();
+    $('ngPixTitulo').textContent = 'Plano de ' + p.nome + ' · ' + p.preco;
+    $('ngPixCodigo').value = p.pix;
+    $('ngPixCopiar').textContent = '📋 Copiar código PIX';
+    var msg = 'Olá! Sou ' + (c.nome || 'cliente') + (c.usuario ? '. Usuário: ' + c.usuario : '') + '. Paguei o plano de ' + p.nome + ' (' + p.preco + ') via PIX e estou enviando o comprovante.';
+    $('ngPixZap').href = 'https://wa.me/' + NG_WHATS + '?text=' + encodeURIComponent(msg);
+    $('ngPix').classList.remove('hidden');
+    try { $('ngPix').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+  };
+
+  window.ngCopiarPix = function () {
+    if (!ngPlanoAtual) return;
+    window.ngCopiar(ngPlanoAtual.pix).then(function (ok) {
+      var b = $('ngPixCopiar');
+      b.textContent = ok ? '✅ Código copiado! Agora cole no app do banco' : '⚠️ Não copiou. Segure no código acima e copie';
+      setTimeout(function () { b.textContent = '📋 Copiar código PIX'; }, 4000);
+    });
+  };
+
+  // ===== PWA: botão "Instalar app" =====
+  var banner = $('pwaBanner'), btnInst = $('pwaBtn'), dica = $('pwaDica'), promptInstalar = null;
+  var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  var dentroDoApk = !!window.AndroidApp || /; wv\)/i.test(navigator.userAgent);
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  function mostrarBanner() {
+    if (standalone || dentroDoApk) return;
+    try { if (sessionStorage.getItem('pwa_fechado') === '1') return; } catch (e) {}
+    banner.style.display = 'block';
+  }
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); promptInstalar = e; mostrarBanner(); });
+  window.addEventListener('appinstalled', function () { banner.style.display = 'none'; promptInstalar = null; });
+  btnInst.onclick = function () {
+    if (promptInstalar) {
+      promptInstalar.prompt();
+      promptInstalar.userChoice.then(function (r) { promptInstalar = null; if (r.outcome === 'accepted') banner.style.display = 'none'; });
+      return;
+    }
+    dica.style.display = dica.style.display === 'block' ? 'none' : 'block';
+  };
+  $('pwaFechar').onclick = function () { banner.style.display = 'none'; try { sessionStorage.setItem('pwa_fechado', '1'); } catch (e) {} };
+  // navegadores sem o aviso automático (iPhone, Firefox...): mostra o botão com instruções
+  setTimeout(function () {
+    if (promptInstalar) return;
+    dica.textContent = ios
+      ? 'No iPhone: toque em Compartilhar (quadrado com seta) e depois em "Adicionar à Tela de Início".'
+      : 'Abra o menu do navegador (⋮) e toque em "Instalar app" ou "Adicionar à tela inicial".';
+    mostrarBanner();
+  }, 1800);
+  if ('serviceWorker' in navigator && !dentroDoApk) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+})();
+</script>
+
 <!-- ================= ROBOZINHO DE ATENDIMENTO ================= -->
 <script>
 window.__nbErr = [];
@@ -689,11 +797,7 @@ window.nbClick = function (btn) {
 <script>
 (function () {
   const WHATSAPP = '5551982218563';
-  const PLANOS = [
-    { nome: '30 dias', preco: 'R$ 29,99' },
-    { nome: '90 dias', preco: 'R$ 74,99', tag: '⭐ mais popular' },
-    { nome: '1 ano',   preco: 'R$ 240,00', tag: 'R$ 20/mês' }
-  ];
+  const PLANOS = window.NG_PLANOS || [];
   const BENEFICIO_INDICACAO = 'Quem indica ganha vantagens no plano!';
 
   const $ = (id) => document.getElementById(id);
@@ -824,11 +928,19 @@ window.nbClick = function (btn) {
 
   async function renovar() {
     await bot('Qual plano você quer?');
-    opcoes(PLANOS.map((p) => [p.nome + ' · ' + p.preco + (p.tag ? ' · ' + p.tag : ''), () => garantirNome(async () => {
-      await bot('Ótimo! Plano de ' + p.nome + ' (' + p.preco + ').\nToque para pedir a renovação. 👇');
-      wa('💬 Pedir renovação', quem() + ' Quero renovar meu plano: ' + p.nome + ' (' + p.preco + ').');
+    opcoes(PLANOS.map((p) => [p.nome + ' · ' + p.preco + (p.tag ? ' · ' + p.tag : ''), () => pagarPix(p)]));
+  }
+  async function pagarPix(p) {
+    await bot('Plano de ' + p.nome + ': ' + p.preco + '.\nPague pelo PIX copia e cola (código abaixo):');
+    bolha(p.pix, 'nb-bot');
+    const b = document.createElement('button'); b.className = 'nb-opt'; b.textContent = '📋 Copiar código PIX';
+    b.onclick = () => { window.ngCopiar(p.pix).then((ok) => { b.textContent = ok ? '✅ Código copiado!' : '⚠️ Segure no código acima e copie'; }); };
+    const w = document.createElement('div'); w.appendChild(b); msgs.appendChild(w); rolar();
+    await bot('No app do seu banco: Pix → Pix Copia e Cola. Confira o recebedor CRISTIAN A BESMINOFF e pague. Depois envie o comprovante: 👇');
+    garantirNome(() => {
+      wa('💬 Enviar comprovante', quem() + ' Paguei o plano de ' + p.nome + ' (' + p.preco + ') via PIX. Segue o comprovante.');
       botaoVoltar();
-    })]));
+    });
   }
   async function planos() {
     await bot('Nossos planos:\n' + PLANOS.map((p) => '• ' + p.nome + ' — ' + p.preco + (p.tag ? ' (' + p.tag + ')' : '')).join('\n'));
